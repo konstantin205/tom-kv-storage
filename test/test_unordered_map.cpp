@@ -148,6 +148,25 @@ TEST_CASE("test serial operations") {
     // Try to re- find
     found = umap.find(racc, 2);
     REQUIRE_MESSAGE(!found, "Removed element was successfully found");
+
+    // Test rehashing validity - insert a lot of items
+    tomkv::unordered_map<int, int> hl_umap;
+
+    // At least one rehashing should accure
+    for (int i = 0; i < 10000; ++i) {
+        hl_umap.emplace(i, i);
+    }
+
+    REQUIRE_MESSAGE(hl_umap.size() == 10000, "Incorrect high-load unordered_map size");
+
+    // Check map validity
+    for (int i = 0; i < 10000; ++i) {
+        read_accessor racc;
+        bool f = hl_umap.find(racc, i);
+        REQUIRE_MESSAGE(f, "Unable to find element in high-load unordered_map");
+        REQUIRE_MESSAGE(racc.key() == i, "Incorrect element returned from find operation on high-load unordered_map");
+        REQUIRE_MESSAGE(racc.mapped() == i, "Incorrect element returned fromt find operation on high-load unordered_map");
+    }
 }
 
 TEST_CASE("test parallel operations") {

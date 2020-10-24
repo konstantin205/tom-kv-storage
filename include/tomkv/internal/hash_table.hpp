@@ -59,6 +59,7 @@ public:
           my_equality(key_eq),
           my_bucket_count(/*init bucket count = */8),
           my_size(0),
+          my_rehash_required_flag(false),
           my_segment_table(create_table()) {}
 
     // TODO: define copy/move constructors/assignments
@@ -137,13 +138,11 @@ private:
         std::shared_mutex& mutex() { return my_mutex; }
 
         node* load_list() const {
-            // return my_list.load(std::memory_order_acquire);
-            return my_list.load();
+            return my_list.load(std::memory_order_acquire);
         }
 
         void store_list( node* n ) {
-            // my_list.store(n, std::memory_order_release);
-            my_list.store(n);
+            my_list.store(n, std::memory_order_release);
         }
 
         // Need to pass the expected head pointer because
@@ -392,9 +391,68 @@ private:
         return search_again(k, b, nullptr);
     }
 
+    // Should be executed if all buckets from 0 to current_bucket_count are locked
+    void internal_rehash( size_type current_bucket_count ) {
+        size_type new_bucket_count = current_bucket_count * 2;
+        std::vector<node*> bucket_lists(current_bucket_count);
+
+        // Clear all of the buckets
+        for (size_type i = 0; i < current_bucket_count; ++i) {
+            bucket* b = get_bucket(i);
+            bucket_lists[i] = b->load_list();
+            b->store_list(nullptr);
+        }
+
+        // Calculate new bucket indices for all elements in old bucket lists
+        for (node* node_list : bucket_lists) {
+            node* n = node_list;
+            while(n != nullptr) {
+                node* next = n->next();
+                size_type new_bucket_index = my_hasher(n->key()) % new_bucket_count;
+                bucket* new_bucket = get_bucket(new_bucket_index);
+                bool inserted = new_bucket->try_insert(new_bucket->load_list(), n);
+                __TOMKV_ASSERT(inserted);
+                n = next;
+            }
+        }
+
+        // All buckets are filled
+        my_bucket_count.store(new_bucket_count, std::memory_order_release);
+    }
+
+    void rehash_if_necessary() {
+        size_type current_bucket_count = my_bucket_count.load(std::memory_order_relaxed);
+
+        if (my_rehash_required_flag.load(std::memory_order_acquire)) {
+            std::vector<typename bucket::write_lock_type> locks(current_bucket_count);
+
+            for (size_type i = 0; i < current_bucket_count; ++i) {
+                locks[i] = typename bucket::write_lock_type{get_bucket(i)->mutex()};
+            }
+
+            // All buckets are locked for write
+            // Test if rehashing is still required
+            if (my_rehash_required_flag.load(std::memory_order_acquire) &&
+                my_bucket_count.load(std::memory_order_relaxed) == current_bucket_count) {
+                // Rehash is still required
+                internal_rehash(current_bucket_count);
+                // Rehashing done
+                my_rehash_required_flag.store(false, std::memory_order_release);
+            }
+        }
+    }
+
+    void mark_rehash_required_if_necessary( size_type current_size, size_type current_bucket_count ) {
+        if (float(current_size) / float(current_bucket_count) > max_load_factor) {
+            my_rehash_required_flag.store(true, std::memory_order_release);
+        }
+    }
+
     template <typename Accessor, typename... Args>
     bool internal_emplace( Accessor& accessor, Args&&... args ) {
         accessor.release();
+
+        rehash_if_necessary();
 
         node* new_node = create_node(std::forward<Args>(args)...);
         size_type hashcode = my_hasher(new_node->key());
@@ -414,7 +472,7 @@ private:
                 // or rehashing happened, but our new bucket is the same as an old one
                 break;
             } else {
-                // Rehashing happened while acquirng the lock
+                // Rehashing happened while acquiring the lock
                 // And current thread need to acquire an other bucket
                 accessor.release(); // Release the lock
             }
@@ -446,13 +504,18 @@ private:
             return false;
         }
         // We have successfully inserted the node
-        my_size.fetch_add(1, std::memory_order_relaxed);
+        size_type sz = my_size.fetch_add(1, std::memory_order_relaxed);
+
+        mark_rehash_required_if_necessary(sz + 1, bc);
         return true;
     }
 
     template <typename Accessor>
     bool internal_find( Accessor& accessor, const key_type& key ) {
         accessor.release();
+
+        rehash_if_necessary();
+
         size_type hashcode = my_hasher(key);
         bucket* b = nullptr;
 
@@ -520,6 +583,9 @@ private:
     }
 
     bool internal_erase( const key_type& key ) {
+
+        rehash_if_necessary();
+
         size_type hashcode = my_hasher(key);
         write_accessor accessor;
 
@@ -576,6 +642,7 @@ private:
     key_equal&             my_equality;
     std::atomic<size_type> my_bucket_count;
     std::atomic<size_type> my_size;
+    std::atomic<bool> my_rehash_required_flag;
     segment_type*          my_segment_table;
 }; // class hash_table
 
