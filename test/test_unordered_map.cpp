@@ -24,7 +24,7 @@
 
 #define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
 #include "doctest.h"
-
+#include "utils.hpp"
 #include "tomkv/unordered_map.hpp"
 #include <vector>
 #include <thread>
@@ -325,4 +325,52 @@ TEST_CASE("test parallel operations") {
             REQUIRE_MESSAGE(racc.mapped() == item, "Incorrect mapped for found element (new)");
         }
     } // end of the thread scope
+}
+
+TEST_CASE("test memory leaks") {
+    using map_type = tomkv::unordered_map<int, int, std::hash<int>, std::equal_to<int>,
+                                          utils::counting_allocator<std::pair<const int, int>>>;
+
+    utils::counting_allocator<std::pair<const int, int>> count_alloc;
+
+    {
+    map_type umap(count_alloc);
+
+    // Emplace some new elements with no accessor
+    for (int i = 0; i < 5000; ++i) {
+        umap.emplace(i, i);
+        umap.emplace(i, i); // Emplace duplicated
+    }
+
+    // Emplace some new elements with read accessor
+    for (int i = 5000; i < 10000; ++i) {
+        typename map_type::read_accessor racc;
+        umap.emplace(racc, i, i);
+        umap.emplace(racc, i, i); // Emplace duplicated
+    }
+
+    // Emplace some new elements with write accessor
+    for (int i = 10000; i < 15000; ++i) {
+        typename map_type::write_accessor wacc;
+        umap.emplace(wacc, i, i);
+        umap.emplace(wacc, i, i); // Emplace duplicated
+    }
+
+    // Erase some existing elements
+    for (int i = 0; i < 1000; ++i) {
+        umap.erase(i);
+        umap.erase(i); // Erase duplicated
+    }
+
+    } // umap is destroyed here
+
+    REQUIRE_MESSAGE(count_alloc.elements_allocated != 0, "Incorrect test setup");
+    REQUIRE_MESSAGE(count_alloc.allocations == count_alloc.deallocations, "Memory leak: number of allocate and deallocate calls should be equal");
+    REQUIRE_MESSAGE(count_alloc.elements_allocated == count_alloc.elements_deallocated,
+                    "Memory leak: number of elements allocated and the number of elements deallocated should be equal");
+    REQUIRE_MESSAGE(count_alloc.elements_constructed == count_alloc.elements_destroyed,
+                    "Memory leak: number of elements constructed and the number of elements destroyed should be equal");
+    count_alloc.reset();
+
+    // TODO: Add test with exception in the constructor
 }

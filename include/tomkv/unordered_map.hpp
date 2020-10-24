@@ -47,6 +47,12 @@ class unordered_map : public unordered_map_base<Hash, KeyEqual, Allocator>, publ
 public:
     unordered_map( const Hash& hash = Hash(), const KeyEqual& equal = KeyEqual(), const Allocator& alloc = Allocator() )
         : unordered_base_type{hash, equal, alloc}, hash_table_base_type(this->my_key_hasher, this->my_key_equality, this->my_value_allocator) {}
+
+    unordered_map( const Hash& hash, const Allocator& alloc )
+        : unordered_map(hash, KeyEqual(), alloc) {}
+
+    unordered_map( const Allocator& alloc )
+        : unordered_map(Hash(), alloc) {}
 }; // class unordered_map
 
 } // namespace internal
