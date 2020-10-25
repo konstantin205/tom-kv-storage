@@ -109,15 +109,30 @@ public:
     }
 
     std::size_t set_key( const path_type& path, const key_type& key ) {
-        return internal_set_key(path, key);
+        return modify_key(path, [&key]( const key_type& ) { return key; });
     }
 
     std::size_t set_mapped( const path_type& path, const mapped_type& mapped ) {
-        return internal_set_mapped(path, mapped);
+        return modify_mapped(path, [&mapped]( const mapped_type& ) { return mapped; });
     }
 
     std::size_t set_value( const path_type& path, const value_type& value ) {
-        return internal_set_value(path, value);
+        return modify_value(path, [&value]( const value_type& ) { return value; });
+    }
+
+    template <typename Predicate>
+    std::size_t modify_key( const path_type& path, const Predicate& pred ) {
+        return internal_modify_key(path, pred);
+    }
+
+    template <typename Predicate>
+    std::size_t modify_mapped( const path_type& path, const Predicate& pred ) {
+        return internal_modify_mapped(path, pred);
+    }
+
+    template <typename Predicate>
+    std::size_t modify_value( const path_type& path, const Predicate& pred ) {
+        return internal_modify_value(path, pred);
     }
 
     bool insert( const path_type& path, const value_type& value ) {
@@ -528,58 +543,63 @@ private:
         return umap;
     }
 
-    std::size_t internal_set_key( const path_type& path, const key_type& key ) {
+    template <typename Predicate>
+    std::size_t internal_modify_key( const path_type& path, const Predicate& pred ) {
         std::size_t modified_keys_counter = 0;
 
-        auto body = [&modified_keys_counter]( const path_type& node_path, ptree::ptree* tree,
-                                              priority_type, const key_type& key ) {
+        auto body = [&modified_keys_counter, &pred]( const path_type& node_path, ptree::ptree* tree,
+                                                     priority_type ) {
             try {
                 auto path_to_key = ptree_path_type{node_path + "/key", '/'};
-                tree->template get<key_type>(path_to_key); // Throws in case of invalid path TODO: find better alternative
-                tree->put(path_to_key, key);
+                key_type key_from_tom = tree->template get<key_type>(path_to_key); // Throws in case of invalid path
+                tree->put(path_to_key, pred(key_from_tom));
                 ++modified_keys_counter;
             } catch ( ptree::ptree_bad_path ) {}
         };
 
-        basic_operation</*Writer?*/true>(path, body, key);
+        basic_operation</*Writer?*/true>(path, body);
 
         return modified_keys_counter;
     }
 
-    std::size_t internal_set_mapped( const path_type& path, const mapped_type& mapped ) {
+    template <typename Predicate>
+    std::size_t internal_modify_mapped( const path_type& path, const Predicate& pred ) {
         std::size_t modified_mapped_counter = 0;
 
-        auto body = [&modified_mapped_counter]( const path_type& node_path, ptree::ptree* tree,
-                                                priority_type, const mapped_type& mapped ) {
+        auto body = [&modified_mapped_counter, &pred]( const path_type& node_path, ptree::ptree* tree,
+                                                       priority_type ) {
             try {
                 auto path_to_mapped = ptree_path_type{node_path + "/mapped", '/'};
-                tree->template get<mapped_type>(path_to_mapped); // Throws in case of invalid path TODO: find better alternative
-                tree->put(path_to_mapped, mapped);
+                mapped_type mapped_from_tom = tree->template get<mapped_type>(path_to_mapped); // Throws in case of invalid path
+                tree->put(path_to_mapped, pred(mapped_from_tom));
                 ++modified_mapped_counter;
             } catch( ptree::ptree_bad_path ) {}
         };
 
-        basic_operation</*Writer?*/true>(path, body, mapped);
+        basic_operation</*Writer?*/true>(path, body);
 
         return modified_mapped_counter;
     }
 
-    std::size_t internal_set_value( const path_type& path, const value_type& value ) {
+    template <typename Predicate>
+    std::size_t internal_modify_value( const path_type& path, const Predicate& pred ) {
         std::size_t modified_value_counter = 0;
 
-        auto body = [&modified_value_counter]( const path_type& node_path, ptree::ptree* tree,
-                                               priority_type, const value_type& value ) {
+        auto body = [&modified_value_counter, &pred]( const path_type& node_path, ptree::ptree* tree,
+                                                      priority_type ) {
             try {
                 auto path_to_key = ptree_path_type{node_path + "/key", '/'};
                 // We can only check the path validity for key path
-                tree->template get<key_type>(path_to_key);
-                tree->put(path_to_key, value.first);
-                tree->put(ptree_path_type{node_path + "/mapped", '/'}, value.second);
+                key_type key_from_tom = tree->template get<key_type>(path_to_key);
+                mapped_type mapped_from_tom = tree->template get<mapped_type>(ptree_path_type{node_path + "/mapped", '/'});
+                value_type modified_value = pred(value_type(key_from_tom, mapped_from_tom));
+                tree->put(path_to_key, modified_value.first);
+                tree->put(ptree_path_type{node_path + "/mapped", '/'}, modified_value.second);
                 ++modified_value_counter;
             } catch( ptree::ptree_bad_path ) {}
         };
 
-        basic_operation</*Writer?*/true>(path, body, value);
+        basic_operation</*Writer?*/true>(path, body);
 
         return modified_value_counter;
     }

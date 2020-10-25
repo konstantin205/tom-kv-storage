@@ -577,3 +577,59 @@ TEST_CASE("test mount with priority") {
     REQUIRE_MESSAGE(it3->first == 10, "Incorrect iterator returned from find");
     REQUIRE_MESSAGE(it3->second == 1000, "Mapped from the key with no priority should be returned");
 }
+
+TEST_CASE("test modify key/mapped/value") {
+    auto tom_name = prepare_tom("1");
+
+    tomkv::storage<int, int> st;
+
+    std::string mount_path = "mnt";
+    std::string real_path = "a/c";
+
+    st.mount(mount_path, tom_name, real_path);
+
+    auto key = *st.key(mount_path + "/d").begin();
+    auto mapped = *st.mapped(mount_path + "/d").begin();
+
+    // Modify key
+    std::size_t modified = st.modify_key(mount_path + "/d", [](int i) { return i + 1; } );
+
+    REQUIRE_MESSAGE(modified == 1, "One key should be modified");
+
+    auto key_after_modification = *st.key(mount_path + "/d").begin();
+    auto mapped_after_modification = *st.mapped(mount_path + "/d").begin();
+
+    REQUIRE_MESSAGE(key_after_modification == key + 1, "Incorrect key after key modification");
+    REQUIRE_MESSAGE(mapped_after_modification == mapped, "Mapped should not be changed");
+
+    key = key_after_modification;
+
+    // Modify mapped
+    modified = st.modify_mapped(mount_path + "/d", [](int m) { return m + 1; });
+
+    REQUIRE_MESSAGE(modified == 1, "One mapped should be modified");
+
+    key_after_modification = *st.key(mount_path + "/d").begin();
+    mapped_after_modification = *st.mapped(mount_path + "/d").begin();
+
+    REQUIRE_MESSAGE(key_after_modification == key, "Key should not be modified");
+    REQUIRE_MESSAGE(mapped_after_modification == mapped + 1, "Incorrect mapped after modification");
+
+    mapped = mapped_after_modification;
+
+    // Modify value
+    modified = st.modify_value(mount_path + "/d", [](auto v) { return std::pair{v.first + 1, v.second + 1}; });
+
+    REQUIRE_MESSAGE(modified == 1, "One value should be modified");
+
+    key_after_modification = *st.key(mount_path + "/d").begin();
+    mapped_after_modification = *st.mapped(mount_path + "/d").begin();
+
+    REQUIRE_MESSAGE(key_after_modification == key + 1, "Incorrect key after modification");
+    REQUIRE_MESSAGE(mapped_after_modification == mapped + 1, "Incorrect mapped after modification");
+
+    auto value = *st.value(mount_path + "/d").begin();
+
+    REQUIRE_MESSAGE(value.first == key + 1, "Incorrect key(from value) after modification");
+    REQUIRE_MESSAGE(value.second == mapped + 1, "Incorrect mapped(from value) after modification");
+}
