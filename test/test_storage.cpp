@@ -41,7 +41,9 @@ namespace pt = boost::property_tree;
 // b {6, 600}
 // f {7, 700}
 //      g {8, 800}
-std::string prepare_tom( const char* id ) {
+// j {9, 900}
+//      d {10, 1000}
+std::string prepare_tom( const char* id, int d_mapped = 400 ) {
     std::string tom_fullname = std::string("tom") + id + ".xml";
 
     pt::ptree tree;
@@ -56,7 +58,7 @@ std::string prepare_tom( const char* id ) {
     tree.add("tom.root.a.c.mapped", 300);
 
     tree.add("tom.root.a.c.d.key", 4);
-    tree.add("tom.root.a.c.d.mapped", 400);
+    tree.add("tom.root.a.c.d.mapped", d_mapped);
 
     tree.add("tom.root.a.e.key", 5);
     tree.add("tom.root.a.e.mapped", 500);
@@ -69,6 +71,12 @@ std::string prepare_tom( const char* id ) {
 
     tree.add("tom.root.f.g.key", 8);
     tree.add("tom.root.f.g.mapped", 800);
+
+    tree.add("tom.root.j.key", 9);
+    tree.add("tom.root.j.mapped", 900);
+
+    tree.add("tom.root.j.d.key", 10);
+    tree.add("tom.root.j.d.mapped", 1000);
 
     pt::write_xml(tom_fullname, tree);
     return tom_fullname;
@@ -87,18 +95,18 @@ TEST_CASE("test mount and read(single mount)") {
     auto key_list = storage.key(mount_path + "/d");
 
     REQUIRE_MESSAGE(key_list.size() == 1, "Only one path should be mounted");
-    REQUIRE_MESSAGE(key_list.front() == 4, "Incorrect key on the path mnt/d");
+    REQUIRE_MESSAGE(*key_list.begin() == 4, "Incorrect key on the path mnt/d");
 
     auto mapped_list = storage.mapped(mount_path + "/d");
 
     REQUIRE_MESSAGE(mapped_list.size() == 1, "Only one path should be mounted");
-    REQUIRE_MESSAGE(mapped_list.front() == 400, "Incorrect mapped on the path mnt/d");
+    REQUIRE_MESSAGE(*mapped_list.begin() == 400, "Incorrect mapped on the path mnt/d");
 
     auto value_list = storage.value(mount_path + "/d");
 
     REQUIRE_MESSAGE(value_list.size() == 1, "Only one path should be mounted");
-    REQUIRE_MESSAGE(value_list.front().first == key_list.front(), "Incorrect key in value on the path mnt/d");
-    REQUIRE_MESSAGE(value_list.front().second == mapped_list.front(), "Incorrect mapped in value on the path mnt/d");
+    REQUIRE_MESSAGE(value_list.begin()->first == *key_list.begin(), "Incorrect key in value on the path mnt/d");
+    REQUIRE_MESSAGE(value_list.begin()->second == *mapped_list.begin(), "Incorrect mapped in value on the path mnt/d");
 }
 
 TEST_CASE("test mount, modify and read (single mount)") {
@@ -116,21 +124,21 @@ TEST_CASE("test mount, modify and read (single mount)") {
 
     auto key_list = storage.key(mount_path + "/d");
     REQUIRE_MESSAGE(key_list.size() == 1, "Only one key should be mounted");
-    REQUIRE_MESSAGE(key_list.front() == 42, "Key was not modified");
+    REQUIRE_MESSAGE(*key_list.begin() == 42, "Key was not modified");
 
     auto mapped_list = storage.mapped(mount_path + "/d");
-    REQUIRE_MESSAGE(mapped_list.front() == 400, "Mapped should not be modified");
+    REQUIRE_MESSAGE(*mapped_list.begin() == 400, "Mapped should not be modified");
 
     // Modify the mapped
     count = storage.set_mapped(mount_path + "/d", 4200);
     REQUIRE_MESSAGE(count == 1, "Only one mapped should be mounted and modified");
 
     key_list = storage.key(mount_path + "/d");
-    REQUIRE_MESSAGE(key_list.front() == 42, "Key should not be modified");
+    REQUIRE_MESSAGE(*key_list.begin() == 42, "Key should not be modified");
 
     mapped_list = storage.mapped(mount_path + "/d");
     REQUIRE_MESSAGE(mapped_list.size() == 1, "Only one mapped should be mounted");
-    REQUIRE_MESSAGE(mapped_list.front() == 4200, "Mapped was not modified");
+    REQUIRE_MESSAGE(*mapped_list.begin() == 4200, "Mapped was not modified");
 
     // Modify the value
     count = storage.set_value(mount_path + "/d", std::pair{22, 2200});
@@ -138,11 +146,11 @@ TEST_CASE("test mount, modify and read (single mount)") {
 
     key_list = storage.key(mount_path + "/d");
     REQUIRE_MESSAGE(key_list.size() == 1, "Only one key should be mounted");
-    REQUIRE_MESSAGE(key_list.front() == 22, "Key was not modified(value)");
+    REQUIRE_MESSAGE(*key_list.begin() == 22, "Key was not modified(value)");
 
     mapped_list = storage.mapped(mount_path + "/d");
     REQUIRE_MESSAGE(mapped_list.size() == 1, "Only one key should be mounted");
-    REQUIRE_MESSAGE(mapped_list.front() == 2200, "Mapped was not modified(value)");
+    REQUIRE_MESSAGE(*mapped_list.begin() == 2200, "Mapped was not modified(value)");
 }
 
 TEST_CASE("test unmounted path") {
@@ -205,18 +213,18 @@ TEST_CASE("test mount and read(multiple mount)") {
     key_list = st2.key(mount_path + "/d");
 
     REQUIRE_MESSAGE(key_list.size() == 1, "The path is valid for only one mount");
-    REQUIRE_MESSAGE(key_list.front() == 4, "Incorrect key in case of multiple mount with one valid path");
+    REQUIRE_MESSAGE(*key_list.begin() == 4, "Incorrect key in case of multiple mount with one valid path");
 
     mapped_list = st2.mapped(mount_path + "/d");
 
     REQUIRE_MESSAGE(mapped_list.size() == 1, "The path is valid for only one mount");
-    REQUIRE_MESSAGE(mapped_list.front() == 400, "Incorrect mount in case of multiple mount with one valid path");
+    REQUIRE_MESSAGE(*mapped_list.begin() == 400, "Incorrect mount in case of multiple mount with one valid path");
 
     value_list = st2.value(mount_path + "/d");
 
     REQUIRE_MESSAGE(value_list.size() == 1, "The path is valid for only one mount");
-    REQUIRE_MESSAGE(value_list.front().first == key_list.front(), "Incorrect key in value in case of multiple mount with one valid path");
-    REQUIRE_MESSAGE(value_list.front().second == mapped_list.front(), "Incorrect mapped in value in case of multiple mount with one valid path");
+    REQUIRE_MESSAGE(value_list.begin()->first == *key_list.begin(), "Incorrect key in value in case of multiple mount with one valid path");
+    REQUIRE_MESSAGE(value_list.begin()->second == *mapped_list.begin(), "Incorrect mapped in value in case of multiple mount with one valid path");
 }
 
 TEST_CASE("test mount, modify and read(multiple mount)") {
@@ -285,22 +293,22 @@ TEST_CASE("test mount, modify and read(multiple mount)") {
     REQUIRE_MESSAGE(count == 1, "Only one key should be modified");
 
     key_list = st2.key(mount_path + "/d");
-    REQUIRE_MESSAGE(key_list.front() == 48, "Key was not modified");
+    REQUIRE_MESSAGE(*key_list.begin() == 48, "Key was not modified");
 
     // Modify the mapped
     count = st2.set_mapped(mount_path + "/d", 4800);
     REQUIRE_MESSAGE(count == 1, "Only one mapped should be modified");
 
     mapped_list = st2.mapped(mount_path + "/d");
-    REQUIRE_MESSAGE(mapped_list.front() == 4800, "Mapped was not modified");
+    REQUIRE_MESSAGE(*mapped_list.begin() == 4800, "Mapped was not modified");
 
     // Modify the value
     count = st2.set_value(mount_path + "/d", std::pair{55, 5500});
     REQUIRE_MESSAGE(count == 1, "Only one value should be modified");
 
     value_list = st2.value(mount_path + "/d");
-    REQUIRE_MESSAGE(value_list.front().first == 55, "Value was not modified");
-    REQUIRE_MESSAGE(value_list.front().second == 5500, "Value was not modified");
+    REQUIRE_MESSAGE(value_list.begin()->first == 55, "Value was not modified");
+    REQUIRE_MESSAGE(value_list.begin()->second == 5500, "Value was not modified");
 }
 
 TEST_CASE("test unmount") {
@@ -356,8 +364,8 @@ TEST_CASE("test insert") {
     auto value_list = st.value(mount_path + "/q");
 
     REQUIRE_MESSAGE(value_list.size() == 1, "Value should be readed");
-    REQUIRE_MESSAGE(value_list.front().first == 42, "Incorrect value inserted");
-    REQUIRE_MESSAGE(value_list.front().second == 4200, "Incorrect value inserted");
+    REQUIRE_MESSAGE(value_list.begin()->first == 42, "Incorrect value inserted");
+    REQUIRE_MESSAGE(value_list.begin()->second == 4200, "Incorrect value inserted");
 
     // Try to insert once again
     inserted = st.insert(mount_path + "/q", std::pair{22, 2200});
@@ -502,4 +510,70 @@ TEST_CASE("test parallel mount-unmount") {
             REQUIRE_MESSAGE(mounts.size() == 0, "Odd indexes should be unmounted");
         }
     }
+}
+
+TEST_CASE("test mount with priority") {
+    auto tom1_name = prepare_tom("1", 42);
+    auto tom2_name = prepare_tom("2", 4242);
+    auto tom3_name = prepare_tom("3", 4242);
+
+    std::string mount_path = "mnt";
+    std::string real_path = "a/c";
+
+    tomkv::storage<int, int> st;
+
+    st.mount(mount_path, tom1_name, real_path, /*priority = */1);
+    st.mount(mount_path, tom2_name, real_path, /*priority = */2);
+    st.mount(mount_path, tom3_name, real_path); // Lowest priority by default
+
+    auto key_mset = st.key(mount_path + "/d");
+
+    REQUIRE_MESSAGE(key_mset.size() == 1, "Storage should read only the high-priority key");
+    REQUIRE_MESSAGE(*key_mset.begin() == 4, "Incorrect key returned from priority reading");
+
+    auto mapped_mset = st.mapped(mount_path + "/d");
+
+    REQUIRE_MESSAGE(mapped_mset.size() == 1, "Storage should read only one mapped from high-priority key");
+    REQUIRE_MESSAGE(*mapped_mset.begin() == 4242, "Incorrect mapped returned from priority reading");
+
+    auto value_mmap = st.value(mount_path + "/d");
+
+    REQUIRE_MESSAGE(value_mmap.size() == 1, "Storage should read only one value from high-priority key");
+    REQUIRE_MESSAGE(value_mmap.begin()->first == 4, "Incorrect key (from value) returned from priority reading");
+    REQUIRE_MESSAGE(value_mmap.begin()->second == 4242, "Incorrect mapped (from value) returned from priority reading");
+
+    // Mount one more path in tom without priority
+    st.mount(mount_path, tom1_name, "j");
+
+    key_mset = st.key(mount_path + "/d");
+
+    REQUIRE_MESSAGE(key_mset.size() == 2, "Storage should read two values - one with high priority and an other without priority");
+    auto it = key_mset.find(4); // High priority key
+    REQUIRE_MESSAGE(it != key_mset.end(), "High priority key should be found");
+    REQUIRE_MESSAGE(*it == 4, "Incorrect iterator returned from find");
+    it = key_mset.find(10); // Key with no priority
+    REQUIRE_MESSAGE(it != key_mset.end(), "Key with no priority should be found");
+    REQUIRE_MESSAGE(*it == 10, "Incorrect iterator returned from find");
+
+    mapped_mset = st.mapped(mount_path + "/d");
+
+    REQUIRE_MESSAGE(mapped_mset.size() == 2, "Storage should read two values - one with priority and an other without priority");
+    auto it2 = mapped_mset.find(4242); // Mapped from priority key
+    REQUIRE_MESSAGE(it2 != mapped_mset.end(), "Mapped from high priority key should be found");
+    REQUIRE_MESSAGE(*it2 == 4242, "Incorrect iterator returned from find");
+    it2 = mapped_mset.find(1000); // Mapped from key with no priority
+    REQUIRE_MESSAGE(it2 != mapped_mset.end(), "Mapped from key with no priority should be found");
+    REQUIRE_MESSAGE(*it2 == 1000, "Incorrect iterator returned from find");
+
+    value_mmap = st.value(mount_path + "/d");
+
+    REQUIRE_MESSAGE(value_mmap.size() == 2, "Storage should read two values - one with priority and an other without priority");
+    auto it3 = value_mmap.find(4); // High priority key
+    REQUIRE_MESSAGE(it3 != value_mmap.end(), "High priority key should be found");
+    REQUIRE_MESSAGE(it3->first == 4, "Incorrect iterator returned from find");
+    REQUIRE_MESSAGE(it3->second == 4242, "Mapped from the key with high priority should be returned");
+    it3 = value_mmap.find(10); // Key with no priority
+    REQUIRE_MESSAGE(it3 != value_mmap.end(), "Key with no priority should be found");
+    REQUIRE_MESSAGE(it3->first == 10, "Incorrect iterator returned from find");
+    REQUIRE_MESSAGE(it3->second == 1000, "Mapped from the key with no priority should be returned");
 }

@@ -38,15 +38,20 @@
 #include <mutex>
 #include <algorithm>
 #include <tuple>
+#include <unordered_map>
+#include <unordered_set>
 
 namespace tomkv {
 namespace internal {
 
 namespace ptree = boost::property_tree;
 
-// TODO: specify what() for exception types
 // The type of the exception which is thrown if the path passed to the lookup/erase/insert is unmounted
-struct unmounted_path : std::exception {};
+struct unmounted_path : std::exception {
+    const char* what() const noexcept override {
+        return "Mounted path was not found";
+    }
+}; // struct unmounted_path
 
 template <typename Key, typename Mapped>
 class storage {
@@ -55,10 +60,10 @@ public:
     using mapped_type = Mapped;
     using value_type = std::pair<key_type, mapped_type>;
 
-    using node_id = std::string;
     using mount_id = std::string;
     using tom_id = std::string;
     using path_type = std::string;
+    using priority_type = std::size_t;
 private:
     static_assert(std::is_same_v<mount_id, tom_id>);
     using id_hasher = std::hash<mount_id>;
@@ -78,8 +83,9 @@ public:
     storage& operator=( const storage& );
     storage& operator=( storage&& );
 
-    void mount( const mount_id& m_id, const tom_id& t_id, const path_type& path ) {
-        internal_mount(m_id, t_id, path);
+    void mount( const mount_id& m_id, const tom_id& t_id,
+                const path_type& path, priority_type priority = priority_type(0) ) {
+        internal_mount(m_id, t_id, path, priority);
     }
 
     bool unmount( const mount_id& m_id ) {
@@ -90,15 +96,15 @@ public:
         return internal_get_mounts(path);
     }
 
-    std::list<key_type> key( const path_type& path ) {
+    std::unordered_multiset<key_type> key( const path_type& path ) {
         return internal_key(path);
     }
 
-    std::list<mapped_type> mapped( const path_type& path ) {
+    std::unordered_multiset<mapped_type> mapped( const path_type& path ) {
         return internal_mapped(path);
     }
 
-    std::list<value_type> value( const path_type& path ) {
+    std::unordered_multimap<key_type, mapped_type> value( const path_type& path ) {
         return internal_value(path);
     }
 
@@ -125,14 +131,17 @@ public:
 private:
     class mount_info {
     public:
-        mount_info( const tom_id& tom_name, const path_type& real_path ) noexcept
-            : my_tom_name(tom_name), my_real_path(real_path) {}
+        mount_info( const tom_id& tom_name, const path_type& real_path, priority_type priority ) noexcept
+            : my_tom_name(tom_name), my_real_path(real_path), my_priority(priority) {}
 
         const tom_id& tom_name() const { return my_tom_name; }
         const path_type& real_path() const { return my_real_path; }
+
+        priority_type priority() const { return my_priority; }
     private:
         tom_id my_tom_name;
         path_type my_real_path;
+        priority_type my_priority;
     };
 
     class tom_info {
@@ -198,6 +207,8 @@ private:
 
         const tom_id& tom_name() const { return my_info.tom_name(); }
         const path_type& real_path() const { return my_info.real_path(); }
+
+        priority_type priority() const { return my_info.priority(); }
     private:
         mount_node* my_next;
         mount_info my_info;
@@ -218,10 +229,11 @@ private:
 
     using ptree_path_type = typename ptree::ptree::path_type;
 
-    mount_node* create_mount_node( const tom_id& t_id, const path_type& path ) {
+    mount_node* create_mount_node( const tom_id& t_id, const path_type& path,
+                                   priority_type priority ) {
         mount_node_allocator_type mount_allocator(my_allocator);
 
-        mount_info new_mount_info( t_id, path );
+        mount_info new_mount_info(t_id, path, priority);
 
         mount_node* new_mount_node = mount_node_allocator_traits::allocate(mount_allocator, 1);
         // mount_node constructor is noexcept => no extra care needed
@@ -237,8 +249,9 @@ private:
     }
 
     // TODO: priority?
-    void internal_mount( const mount_id& m_id, const tom_id& t_id, const path_type& path ) {
-        mount_node* new_mount_node = create_mount_node(t_id, path);
+    void internal_mount( const mount_id& m_id, const tom_id& t_id,
+                         const path_type& path, priority_type priority ) {
+        mount_node* new_mount_node = create_mount_node(t_id, path, priority);
 
         // Add tom into tom table
         my_tom_table.emplace(std::piecewise_construct,
@@ -398,7 +411,7 @@ private:
             node_path.append("/");
             node_path.append(additional_path);
 
-            body(node_path, t_info.tree(), std::forward<AdditionalArgs>(additional_args)...);
+            body(node_path, t_info.tree(), curr_mount_node->priority(), std::forward<AdditionalArgs>(additional_args)...);
 
             // Operation completed
             if constexpr (IsWriteOperation) {
@@ -416,53 +429,110 @@ private:
         }
     }
 
-    std::list<key_type> internal_key( const path_type& path ) {
-        std::list<key_type> key_list;
+    std::unordered_multiset<key_type> internal_key( const path_type& path ) {
+        std::unordered_multimap<key_type, priority_type> keys_with_priority;
 
-        auto body = []( const path_type& node_path, ptree::ptree* tree, std::list<key_type>& key_list ) {
+        auto body = []( const path_type& node_path, ptree::ptree* tree, priority_type current_priority,
+                        std::unordered_multimap<key_type, priority_type>& key_priority_map ) {
             try {
                 key_type key_from_tom = tree->template get<key_type>(ptree_path_type{node_path + "/key", '/'});
-                key_list.emplace_back(std::move(key_from_tom)); // Will not be called if ptree_bad_path was thrown
-            } catch( ptree::ptree_bad_path ) {}
+
+                auto eq_range = key_priority_map.equal_range(key_from_tom);
+
+                if (eq_range.first != eq_range.second) {
+                    // Priority is higher - remove all previously inserted elements
+                    if (current_priority > eq_range.first->second) {
+                        key_priority_map.erase(eq_range.first, eq_range.second);
+                    }
+
+                    if (current_priority >= eq_range.first->second ) {
+                        key_priority_map.emplace(key_from_tom, current_priority);
+                    }
+                } else {
+                    // No such a key - insert it
+                    key_priority_map.emplace(key_from_tom, current_priority);
+                }
+            } catch ( ptree::ptree_bad_path ) {}
         };
 
-        basic_operation</*Writer?*/false>(path, body, key_list);
-        return key_list;
+        basic_operation</*Writer?*/false>(path, body, keys_with_priority);
+
+        std::unordered_multiset<key_type> uset;
+
+        // Cut unnecessary priority from the map
+        for (auto& element : keys_with_priority) {
+            uset.emplace(std::move(element.first));
+        }
+
+        return uset;
     }
 
-    std::list<mapped_type> internal_mapped( const path_type& path ) {
-        std::list<mapped_type> mapped_list;
+    std::unordered_multimap<key_type, std::pair<mapped_type, priority_type>> internal_value_read( const path_type& path ) {
+        std::unordered_multimap<key_type, std::pair<mapped_type, priority_type>> keys_with_priority;
 
-        auto body = []( const path_type& node_path, ptree::ptree* tree, std::list<mapped_type>& mapped_list ) {
-            try {
-                mapped_type mapped_from_tom = tree->template get<mapped_type>(ptree_path_type{node_path + "/mapped", '/'});
-                mapped_list.emplace_back(std::move(mapped_from_tom)); //  Will not be called if ptree_bad_path was thrown
-            } catch( ptree::ptree_bad_path ) {}
-        };
-
-        basic_operation</*Writer?*/false>(path, body, mapped_list);
-        return mapped_list;
-    }
-
-    std::list<value_type> internal_value( const path_type& path ) {
-        std::list<value_type> value_list;
-
-        auto body = []( const path_type& node_path, ptree::ptree* tree, std::list<value_type>& value_list ) {
+        auto body = []( const path_type& node_path, ptree::ptree* tree,
+                        priority_type current_priority,
+                        std::unordered_multimap<key_type, std::pair<mapped_type, priority_type>>& key_priority_map ) {
             try {
                 key_type key_from_tom = tree->template get<key_type>(ptree_path_type{node_path + "/key", '/'});
                 mapped_type mapped_from_tom = tree->template get<mapped_type>(ptree_path_type{node_path + "/mapped", '/'});
-                value_list.emplace_back(std::move(key_from_tom), std::move(mapped_from_tom)); //  Will not be called if ptree_bad_path was thrown
-            } catch( ptree::ptree_bad_path ) {}
+
+                auto eq_range = key_priority_map.equal_range(key_from_tom);
+
+                if (eq_range.first != eq_range.second) {
+                    // Priority is higher - remove all previously inserted elements
+                    if (current_priority > eq_range.first->second.second) {
+                        key_priority_map.erase(eq_range.first, eq_range.second);
+                    }
+
+                    if (current_priority >= eq_range.first->second.second) {
+                        key_priority_map.emplace(std::piecewise_construct,
+                                                std::forward_as_tuple(key_from_tom),
+                                                std::forward_as_tuple(mapped_from_tom, current_priority));
+                    }
+                } else {
+                    key_priority_map.emplace(std::piecewise_construct,
+                                                std::forward_as_tuple(key_from_tom),
+                                                std::forward_as_tuple(mapped_from_tom, current_priority));
+                }
+            } catch( ptree::ptree_bad_path& ) {}
         };
 
-        basic_operation</*Writer*/false>(path, body, value_list);
-        return value_list;
+        basic_operation</*Writer?*/false>(path, body, keys_with_priority);
+        return keys_with_priority;
+    }
+
+    std::unordered_multiset<mapped_type> internal_mapped( const path_type& path ) {
+        auto keys_with_priority = internal_value_read(path);
+
+        std::unordered_multiset<mapped_type> uset;
+
+        // Cut unnecessary priority and key from the map
+        for (auto& element : keys_with_priority) {
+            uset.emplace(std::move(element.second.first));
+        }
+
+        return uset;
+    }
+
+    std::unordered_multimap<key_type, mapped_type> internal_value( const path_type& path ) {
+        auto keys_with_priority = internal_value_read(path);
+
+        std::unordered_multimap<key_type, mapped_type> umap;
+
+        // Cur unnecessary priority from the map
+        for (auto& element : keys_with_priority) {
+            umap.emplace(std::move(element.first),
+                         std::move(element.second.first));
+        }
+        return umap;
     }
 
     std::size_t internal_set_key( const path_type& path, const key_type& key ) {
         std::size_t modified_keys_counter = 0;
 
-        auto body = [&modified_keys_counter]( const path_type& node_path, ptree::ptree* tree, const key_type& key ) {
+        auto body = [&modified_keys_counter]( const path_type& node_path, ptree::ptree* tree,
+                                              priority_type, const key_type& key ) {
             try {
                 auto path_to_key = ptree_path_type{node_path + "/key", '/'};
                 tree->template get<key_type>(path_to_key); // Throws in case of invalid path TODO: find better alternative
@@ -479,7 +549,8 @@ private:
     std::size_t internal_set_mapped( const path_type& path, const mapped_type& mapped ) {
         std::size_t modified_mapped_counter = 0;
 
-        auto body = [&modified_mapped_counter]( const path_type& node_path, ptree::ptree* tree, const mapped_type& mapped ) {
+        auto body = [&modified_mapped_counter]( const path_type& node_path, ptree::ptree* tree,
+                                                priority_type, const mapped_type& mapped ) {
             try {
                 auto path_to_mapped = ptree_path_type{node_path + "/mapped", '/'};
                 tree->template get<mapped_type>(path_to_mapped); // Throws in case of invalid path TODO: find better alternative
@@ -496,7 +567,8 @@ private:
     std::size_t internal_set_value( const path_type& path, const value_type& value ) {
         std::size_t modified_value_counter = 0;
 
-        auto body = [&modified_value_counter]( const path_type& node_path, ptree::ptree* tree, const value_type& value ) {
+        auto body = [&modified_value_counter]( const path_type& node_path, ptree::ptree* tree,
+                                               priority_type, const value_type& value ) {
             try {
                 auto path_to_key = ptree_path_type{node_path + "/key", '/'};
                 // We can only check the path validity for key path
@@ -514,7 +586,8 @@ private:
 
     bool internal_insert( const path_type& path, const value_type& value ) {
         bool exists = false;
-        auto body = [&]( const path_type& node_path, ptree::ptree* tree, const value_type& value ) {
+        auto body = [&]( const path_type& node_path, ptree::ptree* tree,
+                         priority_type, const value_type& value ) {
             auto path_to_key = ptree_path_type{node_path + "/key", '/'};
             // Check if the path is already in a tree
             try {
@@ -535,7 +608,7 @@ private:
 
     bool internal_remove( const path_type& path ) {
         bool exists = false;
-        auto body = [&]( const path_type& node_path, ptree::ptree* tree ) {
+        auto body = [&]( const path_type& node_path, ptree::ptree* tree, priority_type ) {
             auto path_to_key = ptree_path_type{node_path + "/key", '/'};
             // Check if the path exists
             try {

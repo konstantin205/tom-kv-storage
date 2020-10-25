@@ -34,11 +34,11 @@
 namespace tomkv {
 namespace internal {
 
-// TODO: add rehashing mechanism
 template <typename Key, typename Mapped,
           typename Hasher, typename KeyEqual,
           typename Allocator>
 class hash_table {
+public:
     using key_type = Key;
     using mapped_type = Mapped;
     using value_type = std::pair<const key_type, mapped_type>;
@@ -47,27 +47,23 @@ class hash_table {
     using hasher = Hasher;
     using key_equal = KeyEqual;
     using size_type = std::size_t;
-public:
+
     class read_accessor;
     class write_accessor;
 
+private:
+    static constexpr size_type init_bucket_count = 8;
+public:
     hash_table( hasher& h,
                 key_equal& key_eq,
                 allocator_type& allocator )
         : my_allocator(allocator),
           my_hasher(h),
           my_equality(key_eq),
-          my_bucket_count(/*init bucket count = */8),
+          my_bucket_count(init_bucket_count),
           my_size(0),
           my_rehash_required_flag(false),
           my_segment_table(create_table()) {}
-
-    // TODO: define copy/move constructors/assignments
-    hash_table( const hash_table& );
-    hash_table( hash_table&& );
-
-    hash_table& operator=( const hash_table& );
-    hash_table& operator=( hash_table&& );
 
     ~hash_table() {
         destroy_table();
@@ -642,7 +638,7 @@ private:
     key_equal&             my_equality;
     std::atomic<size_type> my_bucket_count;
     std::atomic<size_type> my_size;
-    std::atomic<bool> my_rehash_required_flag;
+    std::atomic<bool>      my_rehash_required_flag;
     segment_type*          my_segment_table;
 }; // class hash_table
 
