@@ -145,11 +145,11 @@ Constructs an empty accessor.
 read_accessor( read_accessor&& other );
 ```
 
-Constructs an accessor by transfering ownership `other` to the constructed accessor.
+Constructs an accessor by transfering ownership from `other` to the constructed accessor.
 
 `other` is left in an empty state.
 
-###### Destructors
+###### Destructor
 
 Destroys the `read_accessor`.
 

@@ -67,7 +67,7 @@ std::string prepare_tom( const char* id, int d_mapped = 400 ) {
     tree.add("tom.root.b.mapped", 600);
 
     tree.add("tom.root.f.key", 7);
-    tree.add("tom.root.f.key", 700);
+    tree.add("tom.root.f.mapped", 700);
 
     tree.add("tom.root.f.g.key", 8);
     tree.add("tom.root.f.g.mapped", 800);
@@ -80,6 +80,26 @@ std::string prepare_tom( const char* id, int d_mapped = 400 ) {
 
     pt::write_xml(tom_fullname, tree);
     return tom_fullname;
+}
+
+void set_outdated( const std::string& tom_name, std::string path,
+                   const std::chrono::seconds& duration )
+{
+    std::string full_path = std::string("tom.root.") + path;
+    pt::ptree tree;
+
+    pt::read_xml(tom_name, tree);
+
+    auto date_created = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+    auto lifetime = duration.count();
+
+    auto opt = tree.get_optional<int>(full_path + ".key");
+    REQUIRE(opt);
+
+    tree.put(full_path + ".date_created", date_created);
+    tree.put(full_path + ".lifetime", lifetime);
+
+    pt::write_xml(tom_name, tree);
 }
 
 TEST_CASE("test mount and read(single mount)") {
@@ -370,6 +390,45 @@ TEST_CASE("test insert") {
     // Try to insert once again
     inserted = st.insert(mount_path + "/q", std::pair{22, 2200});
     REQUIRE_MESSAGE(!inserted, "Second insertion should fail");
+
+    // Try to insert key with lifetime
+    inserted = st.insert(mount_path + "/qq", std::pair{22, 2200}, std::chrono::seconds(2));
+    REQUIRE_MESSAGE(inserted, "Insertion with lifetime should be succeeded");
+
+    // Try to read from inserted variable
+    value_list = st.value(mount_path + "/qq");
+
+    REQUIRE_MESSAGE(value_list.size() == 1, "Value should be readed");
+    REQUIRE_MESSAGE(value_list.begin()->first == 22, "Incorrect value inserted");
+    REQUIRE_MESSAGE(value_list.begin()->second == 2200, "Incorrect value inserted");
+
+    // Try to insert once again
+    inserted = st.insert(mount_path + "/qq", std::pair{1, 100});
+    REQUIRE_MESSAGE(!inserted, "Key should already exists");
+    inserted = st.insert(mount_path + "/qq", std::pair{1, 100}, std::chrono::seconds(100));
+    REQUIRE_MESSAGE(!inserted, "Key should already exists");
+
+    std::this_thread::sleep_for(std::chrono::seconds(2));
+
+    // K-V pair is outdated - insertion should be successfull
+    inserted = st.insert(mount_path + "/qq", std::pair{33, 3300}, std::chrono::seconds(1));
+
+    value_list = st.value(mount_path + "/qq");
+    REQUIRE_MESSAGE(value_list.size() == 1, "Value should be readed");
+    REQUIRE_MESSAGE(value_list.begin()->first == 33, "Incorrect value inserted");
+    REQUIRE_MESSAGE(value_list.begin()->second == 3300, "Incorrect value inserted");
+
+    inserted = st.insert(mount_path + "/qq", std::pair{11, 1100});
+    REQUIRE_MESSAGE(!inserted, "Key should already exists");
+
+    std::this_thread::sleep_for(std::chrono::seconds(1));
+    inserted = st.insert(mount_path + "/qq", std::pair{48, 4800});
+    REQUIRE_MESSAGE(inserted, "Value should be inserted");
+
+    value_list = st.value(mount_path + "/qq");
+    REQUIRE_MESSAGE(value_list.size() == 1, "Value should be readed");
+    REQUIRE_MESSAGE(value_list.begin()->first == 48, "Incorrect value inserted");
+    REQUIRE_MESSAGE(value_list.begin()->second == 4800, "Incorrect value inserted");
 }
 
 TEST_CASE("test remove") {
@@ -393,6 +452,13 @@ TEST_CASE("test remove") {
     // Erase by invalid path
     erased = st.remove(mount_path + "/d");
     REQUIRE_MESSAGE(!erased, "Second erasure should fail");
+
+    bool inserted = st.insert(mount_path + "/d", std::pair{100, 1000}, std::chrono::seconds(1));
+    REQUIRE_MESSAGE(inserted, "Insertion should be succeeded");
+
+    std::this_thread::sleep_for(std::chrono::seconds(1));
+    erased = st.remove(mount_path + "/d");
+    REQUIRE_MESSAGE(!erased, "Erasure of outdated key should fail");
 }
 
 TEST_CASE("test get mounts") {
@@ -632,4 +698,126 @@ TEST_CASE("test modify key/mapped/value") {
 
     REQUIRE_MESSAGE(value.first == key + 1, "Incorrect key(from value) after modification");
     REQUIRE_MESSAGE(value.second == mapped + 1, "Incorrect mapped(from value) after modification");
+}
+
+TEST_CASE("test read outdated keys") {
+    auto tom_name = prepare_tom("1");
+
+    tomkv::storage<int, int> st;
+
+    std::string mount_path = "mnt";
+    std::string real_path = "a/c";
+
+    st.mount(mount_path, tom_name, real_path);
+
+    set_outdated(tom_name, "a.c.d", std::chrono::seconds(2));
+
+    // Try to read - should not be outdated
+    auto keys = st.key(mount_path + "/d");
+
+    REQUIRE_MESSAGE(keys.size() == 1, "Only one element should be found");
+    REQUIRE_MESSAGE(*keys.begin() == 4, "Incorrect key");
+
+    auto mapped = st.mapped(mount_path + "/d");
+
+    REQUIRE_MESSAGE(mapped.size() == 1, "Only one element should be found");
+    REQUIRE_MESSAGE(*mapped.begin() == 400, "Incorrect mapped");
+
+    auto values = st.value(mount_path + "/d");
+
+    REQUIRE_MESSAGE(values.size() == 1, "Only one element should be found");
+    REQUIRE_MESSAGE(values.begin()->first == 4, "Incorrect key(value)");
+    REQUIRE_MESSAGE(values.begin()->second == 400, "Incorrect mapped(value)");
+
+    // Make the key outdated
+    std::this_thread::sleep_for(std::chrono::seconds(2));
+
+    // Key should not be available any more
+    keys = st.key(mount_path + "/d");
+    REQUIRE_MESSAGE(keys.size() == 0, "Key should not be available");
+
+    mapped = st.mapped(mount_path + "/d");
+    REQUIRE_MESSAGE(mapped.size() == 0, "Mapped should not be available");
+
+    values = st.value(mount_path + "/d");
+    REQUIRE_MESSAGE(values.size() == 0, "Value should not be available");
+}
+
+TEST_CASE("test write outdated keys") {
+    auto tom_name = prepare_tom("1");
+
+    tomkv::storage<int, int> st;
+
+    std::string mount_path = "mnt";
+    std::string real_path = "a/c";
+
+    st.mount(mount_path, tom_name, real_path);
+
+    set_outdated(tom_name, "a.c.d", std::chrono::seconds(1));
+
+    // Try to read - should not be outdated
+    auto values = st.value(mount_path + "/d");
+    REQUIRE_MESSAGE(values.size() == 1, "Only one element should be found");
+    REQUIRE_MESSAGE(values.begin()->first == 4, "Incorrect key");
+    REQUIRE_MESSAGE(values.begin()->second == 400, "Incorrect mapped");
+
+    std::this_thread::sleep_for(std::chrono::seconds(1));
+
+    // K-V pair should not be available for modification
+    std::size_t modified = st.set_key(mount_path + "/d", 42);
+    REQUIRE_MESSAGE(modified == 0, "No key should be modified");
+
+    modified = st.set_mapped(mount_path + "/d", 4242);
+    REQUIRE_MESSAGE(modified == 0, "No mapped should be modified");
+
+    modified = st.set_value(mount_path + "/d", std::pair{42, 4242});
+    REQUIRE_MESSAGE(modified == 0, "No value should be modified");
+
+    // Test modify as new
+    modified = st.set_key_as_new(mount_path + "/d", 42);
+    REQUIRE_MESSAGE(modified == 1, "One key should be modified");
+
+    // Reading should be successful
+    values = st.value(mount_path + "/d");
+    REQUIRE_MESSAGE(values.size() == 1, "One key should be found");
+    REQUIRE_MESSAGE(values.begin()->first == 42, "Incorrect key");
+    REQUIRE_MESSAGE(values.begin()->second == 400, "Incorrect mapped");
+
+    std::this_thread::sleep_for(std::chrono::seconds(1));
+
+    // K-V pair should not be available any more
+    values = st.value(mount_path + "/d");
+    REQUIRE_MESSAGE(values.size() == 0, "No keys should be found");
+
+    // Modify mapped as new
+    modified = st.set_mapped_as_new(mount_path + "/d", 4242);
+    REQUIRE_MESSAGE(modified == 1, "One element should be modified");
+
+    // Reading should be successful
+    values = st.value(mount_path + "/d");
+    REQUIRE_MESSAGE(values.size() == 1, "One key should be found");
+    REQUIRE_MESSAGE(values.begin()->first == 42, "Incorrect key");
+    REQUIRE_MESSAGE(values.begin()->second == 4242, "Incorrect mapped");
+
+    std::this_thread::sleep_for(std::chrono::seconds(1));
+
+    // K-V pair should not be available any more
+    values = st.value(mount_path + "/d");
+    REQUIRE_MESSAGE(values.size() == 0, "No keys should be found");
+
+    // Modify value as new
+    modified = st.set_value_as_new(mount_path + "/d", std::pair{22, 2200});
+    REQUIRE_MESSAGE(modified == 1, "One element should be modified");
+
+    // Reading should be successful
+    values = st.value(mount_path + "/d");
+    REQUIRE_MESSAGE(values.size() == 1, "One key should be found");
+    REQUIRE_MESSAGE(values.begin()->first == 22, "Incorrect key");
+    REQUIRE_MESSAGE(values.begin()->second == 2200, "Incorrect mapped");
+
+    std::this_thread::sleep_for(std::chrono::seconds(1));
+
+    // K-V pair should not be available any more
+    values = st.value(mount_path + "/d");
+    REQUIRE_MESSAGE(values.size() == 0, "No keys should be found");
 }

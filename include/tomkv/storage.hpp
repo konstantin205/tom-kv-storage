@@ -40,6 +40,8 @@
 #include <tuple>
 #include <unordered_map>
 #include <unordered_set>
+#include <optional>
+#include <chrono>
 
 namespace tomkv {
 namespace internal {
@@ -120,6 +122,18 @@ public:
         return modify_value(path, [&value]( const value_type& ) { return value; });
     }
 
+    std::size_t set_key_as_new( const path_type& path, const key_type& key ) {
+        return modify_key_as_new(path, [&key]( const key_type& ) { return key; });
+    }
+
+    std::size_t set_mapped_as_new( const path_type& path, const mapped_type& mapped ) {
+        return modify_mapped_as_new(path, [&mapped]( const mapped_type& ) { return mapped; });
+    }
+
+    std::size_t set_value_as_new( const path_type& path, const value_type& value ) {
+        return modify_value_as_new(path, [&value]( const value_type& ) { return value; });
+    }
+
     template <typename Predicate>
     std::size_t modify_key( const path_type& path, const Predicate& pred ) {
         return internal_modify_key(path, pred);
@@ -135,8 +149,29 @@ public:
         return internal_modify_value(path, pred);
     }
 
+    template <typename Predicate>
+    std::size_t modify_key_as_new( const path_type& path, const Predicate& pred ) {
+        return internal_modify_key_as_new(path, pred);
+    }
+
+    template <typename Predicate>
+    std::size_t modify_mapped_as_new( const path_type& path, const Predicate& pred ) {
+        return internal_modify_mapped_as_new(path, pred);
+    }
+
+    template <typename Predicate>
+    std::size_t modify_value_as_new( const path_type& path, const Predicate& pred ) {
+        return internal_modify_value_as_new(path, pred);
+    }
+
     bool insert( const path_type& path, const value_type& value ) {
         return internal_insert(path, value);
+    }
+
+    bool insert( const path_type& path, const value_type& value,
+                 const std::chrono::seconds& lifetime )
+    {
+        return internal_insert_with_lifetime(path, value, lifetime);
     }
 
     bool remove( const path_type& path ) {
@@ -244,6 +279,8 @@ private:
 
     using ptree_path_type = typename ptree::ptree::path_type;
 
+    using date_type = std::chrono::seconds::rep;
+
     mount_node* create_mount_node( const tom_id& t_id, const path_type& path,
                                    priority_type priority ) {
         mount_node_allocator_type mount_allocator(my_allocator);
@@ -263,7 +300,6 @@ private:
         mount_node_allocator_traits::deallocate(mount_allocator, node, 1);
     }
 
-    // TODO: priority?
     void internal_mount( const mount_id& m_id, const tom_id& t_id,
                          const path_type& path, priority_type priority ) {
         mount_node* new_mount_node = create_mount_node(t_id, path, priority);
@@ -283,7 +319,7 @@ private:
 
         // mount_id was already mounted previously - we need to append new mount_id into the list
         std::atomic<mount_node*>& list = mracc.hazardous_mapped();
-        mount_node* expected = list.load(std::memory_order_relaxed);
+        mount_node* expected = list.load(std::memory_order_acquire);
         new_mount_node->set_next(expected);
 
         utils::exponential_backoff backoff;
@@ -292,6 +328,7 @@ private:
                                           std::memory_order_relaxed,
                                           std::memory_order_relaxed))
         {
+            new_mount_node->set_next(expected);
             backoff.pause();
         }
 
@@ -450,24 +487,37 @@ private:
         auto body = []( const path_type& node_path, ptree::ptree* tree, priority_type current_priority,
                         std::unordered_multimap<key_type, priority_type>& key_priority_map ) {
             try {
-                key_type key_from_tom = tree->template get<key_type>(ptree_path_type{node_path + "/key", '/'});
+                auto date_created = tree->template get_optional<date_type>(ptree_path_type{node_path + "/date_created", '/'});
+                auto lifetime = tree->template get_optional<date_type>(ptree_path_type{node_path + "/lifetime", '/'});
 
-                auto eq_range = key_priority_map.equal_range(key_from_tom);
+                bool is_outdated = false;
 
-                if (eq_range.first != eq_range.second) {
-                    // Priority is higher - remove all previously inserted elements
-                    if (current_priority > eq_range.first->second) {
-                        key_priority_map.erase(eq_range.first, eq_range.second);
-                    }
+                // If the lifetime for the key is presented
+                if (date_created && lifetime) {
+                    is_outdated = (std::chrono::system_clock::now() - std::chrono::seconds(lifetime.value())) >
+                                  std::chrono::system_clock::time_point(std::chrono::seconds(date_created.value()));
+                }
 
-                    if (current_priority >= eq_range.first->second ) {
+                if (!is_outdated) {
+                    key_type key_from_tom = tree->template get<key_type>(ptree_path_type{node_path + "/key", '/'});
+
+                    auto eq_range = key_priority_map.equal_range(key_from_tom);
+
+                    if (eq_range.first != eq_range.second) {
+                        // Priority is higher - remove all previously inserted elements
+                        if (current_priority > eq_range.first->second) {
+                            key_priority_map.erase(eq_range.first, eq_range.second);
+                        }
+
+                        if (current_priority >= eq_range.first->second ) {
+                            key_priority_map.emplace(key_from_tom, current_priority);
+                        }
+                    } else {
+                        // No such a key - insert it
                         key_priority_map.emplace(key_from_tom, current_priority);
                     }
-                } else {
-                    // No such a key - insert it
-                    key_priority_map.emplace(key_from_tom, current_priority);
                 }
-            } catch ( ptree::ptree_bad_path ) {}
+            } catch ( ptree::ptree_bad_path& ) {} // TODO: use get_optional instead of throwing an exception
         };
 
         basic_operation</*Writer?*/false>(path, body, keys_with_priority);
@@ -489,26 +539,39 @@ private:
                         priority_type current_priority,
                         std::unordered_multimap<key_type, std::pair<mapped_type, priority_type>>& key_priority_map ) {
             try {
-                key_type key_from_tom = tree->template get<key_type>(ptree_path_type{node_path + "/key", '/'});
-                mapped_type mapped_from_tom = tree->template get<mapped_type>(ptree_path_type{node_path + "/mapped", '/'});
+                auto date_created = tree->template get_optional<date_type>(ptree_path_type{node_path + "/date_created", '/'});
+                auto lifetime = tree->template get_optional<date_type>(ptree_path_type{node_path + "/lifetime", '/'});
 
-                auto eq_range = key_priority_map.equal_range(key_from_tom);
+                bool is_outdated = false;
 
-                if (eq_range.first != eq_range.second) {
-                    // Priority is higher - remove all previously inserted elements
-                    if (current_priority > eq_range.first->second.second) {
-                        key_priority_map.erase(eq_range.first, eq_range.second);
-                    }
+                // If the lifetime for the key is presented
+                if (date_created && lifetime) {
+                    is_outdated = (std::chrono::system_clock::now() - std::chrono::seconds(lifetime.value())) >
+                                  std::chrono::system_clock::time_point(std::chrono::seconds(date_created.value()));
+                }
 
-                    if (current_priority >= eq_range.first->second.second) {
+                if (!is_outdated) {
+                    key_type key_from_tom = tree->template get<key_type>(ptree_path_type{node_path + "/key", '/'});
+                    mapped_type mapped_from_tom = tree->template get<mapped_type>(ptree_path_type{node_path + "/mapped", '/'});
+
+                    auto eq_range = key_priority_map.equal_range(key_from_tom);
+
+                    if (eq_range.first != eq_range.second) {
+                        // Priority is higher - remove all previously inserted elements
+                        if (current_priority > eq_range.first->second.second) {
+                            key_priority_map.erase(eq_range.first, eq_range.second);
+                        }
+
+                        if (current_priority >= eq_range.first->second.second) {
+                            key_priority_map.emplace(std::piecewise_construct,
+                                                    std::forward_as_tuple(key_from_tom),
+                                                    std::forward_as_tuple(mapped_from_tom, current_priority));
+                        }
+                    } else {
                         key_priority_map.emplace(std::piecewise_construct,
-                                                std::forward_as_tuple(key_from_tom),
-                                                std::forward_as_tuple(mapped_from_tom, current_priority));
+                                                    std::forward_as_tuple(key_from_tom),
+                                                    std::forward_as_tuple(mapped_from_tom, current_priority));
                     }
-                } else {
-                    key_priority_map.emplace(std::piecewise_construct,
-                                                std::forward_as_tuple(key_from_tom),
-                                                std::forward_as_tuple(mapped_from_tom, current_priority));
                 }
             } catch( ptree::ptree_bad_path& ) {}
         };
@@ -543,18 +606,38 @@ private:
         return umap;
     }
 
-    template <typename Predicate>
-    std::size_t internal_modify_key( const path_type& path, const Predicate& pred ) {
+    template <bool AsNew, typename Predicate>
+    std::size_t basic_modify_key( const path_type& path, const Predicate& pred ) {
         std::size_t modified_keys_counter = 0;
 
         auto body = [&modified_keys_counter, &pred]( const path_type& node_path, ptree::ptree* tree,
                                                      priority_type ) {
             try {
-                auto path_to_key = ptree_path_type{node_path + "/key", '/'};
-                key_type key_from_tom = tree->template get<key_type>(path_to_key); // Throws in case of invalid path
-                tree->put(path_to_key, pred(key_from_tom));
-                ++modified_keys_counter;
-            } catch ( ptree::ptree_bad_path ) {}
+                bool modification_allowed = true;
+                if constexpr (!AsNew) {
+                    auto date_created = tree->template get_optional<date_type>(ptree_path_type{node_path + "/date_created", '/'});
+                    auto lifetime = tree->template get_optional<date_type>(ptree_path_type{node_path + "/lifetime", '/'});
+
+                    if (date_created && lifetime) {
+                        modification_allowed = (std::chrono::system_clock::now() - std::chrono::seconds(lifetime.value())) <=
+                                               std::chrono::system_clock::time_point(std::chrono::seconds(date_created.value()));
+                    }
+                }
+
+                if (modification_allowed) {
+                    auto path_to_key = ptree_path_type{node_path + "/key", '/'};
+                    key_type key_from_tom = tree->template get<key_type>(path_to_key); // Throws in case of invalid path
+                    tree->put(path_to_key, pred(key_from_tom));
+
+                    if constexpr (AsNew) {
+                        // If the key is considered as new - modify the time created as current time
+                        tree->put(ptree_path_type{node_path + "/date_created", '/'},
+                                std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count());
+                    }
+
+                    ++modified_keys_counter;
+                }
+            } catch ( ptree::ptree_bad_path& ) {}
         };
 
         basic_operation</*Writer?*/true>(path, body);
@@ -563,16 +646,47 @@ private:
     }
 
     template <typename Predicate>
-    std::size_t internal_modify_mapped( const path_type& path, const Predicate& pred ) {
+    std::size_t internal_modify_key( const path_type& path, const Predicate& pred ) {
+        return basic_modify_key</*as new = */false>(path, pred);
+    }
+
+    template <typename Predicate>
+    std::size_t internal_modify_key_as_new( const path_type& path, const Predicate& pred ) {
+        return basic_modify_key</*as new = */true>(path, pred);
+    }
+
+    template <bool AsNew, typename Predicate>
+    std::size_t basic_modify_mapped( const path_type& path, const Predicate& pred ) {
         std::size_t modified_mapped_counter = 0;
 
         auto body = [&modified_mapped_counter, &pred]( const path_type& node_path, ptree::ptree* tree,
                                                        priority_type ) {
             try {
-                auto path_to_mapped = ptree_path_type{node_path + "/mapped", '/'};
-                mapped_type mapped_from_tom = tree->template get<mapped_type>(path_to_mapped); // Throws in case of invalid path
-                tree->put(path_to_mapped, pred(mapped_from_tom));
-                ++modified_mapped_counter;
+                bool modification_allowed = true;
+
+                if constexpr (!AsNew) {
+                    auto date_created = tree->template get_optional<date_type>(ptree_path_type{node_path + "/date_created", '/'});
+                    auto lifetime = tree->template get_optional<date_type>(ptree_path_type{node_path + "/lifetime", '/'});
+
+                    if (date_created && lifetime) {
+                        modification_allowed = (std::chrono::system_clock::now() - std::chrono::seconds(lifetime.value())) <=
+                                               std::chrono::system_clock::time_point(std::chrono::seconds(date_created.value()));
+                    }
+                }
+
+                if (modification_allowed) {
+                    auto path_to_mapped = ptree_path_type{node_path + "/mapped", '/'};
+                    mapped_type mapped_from_tom = tree->template get<mapped_type>(path_to_mapped); // Throws in case of invalid path
+                    tree->put(path_to_mapped, pred(mapped_from_tom));
+
+                    if constexpr (AsNew) {
+                        // If the key is considered as new - modify the time created as current time
+                        tree->put(ptree_path_type{node_path + "/date_created", '/'},
+                                std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count());
+                    }
+
+                    ++modified_mapped_counter;
+                }
             } catch( ptree::ptree_bad_path ) {}
         };
 
@@ -582,21 +696,51 @@ private:
     }
 
     template <typename Predicate>
-    std::size_t internal_modify_value( const path_type& path, const Predicate& pred ) {
+    std::size_t internal_modify_mapped( const path_type& path, const Predicate& pred ) {
+        return basic_modify_mapped</*as new = */false>(path, pred);
+    }
+
+    template <typename Predicate>
+    std::size_t internal_modify_mapped_as_new( const path_type& path, const Predicate& pred ) {
+        return basic_modify_mapped</*as new = */true>(path, pred);
+    }
+
+    template <bool AsNew, typename Predicate>
+    std::size_t basic_modify_value( const path_type& path, const Predicate& pred ) {
         std::size_t modified_value_counter = 0;
 
         auto body = [&modified_value_counter, &pred]( const path_type& node_path, ptree::ptree* tree,
                                                       priority_type ) {
             try {
-                auto path_to_key = ptree_path_type{node_path + "/key", '/'};
-                // We can only check the path validity for key path
-                key_type key_from_tom = tree->template get<key_type>(path_to_key);
-                mapped_type mapped_from_tom = tree->template get<mapped_type>(ptree_path_type{node_path + "/mapped", '/'});
-                value_type modified_value = pred(value_type(key_from_tom, mapped_from_tom));
-                tree->put(path_to_key, modified_value.first);
-                tree->put(ptree_path_type{node_path + "/mapped", '/'}, modified_value.second);
-                ++modified_value_counter;
-            } catch( ptree::ptree_bad_path ) {}
+                bool modification_allowed = true;
+                if constexpr (!AsNew) {
+                    auto date_created = tree->template get_optional<date_type>(ptree_path_type{node_path + "/date_created", '/'});
+                    auto lifetime = tree->template get_optional<date_type>(ptree_path_type{node_path + "/lifetime", '/'});
+
+                    if (date_created && lifetime) {
+                        modification_allowed = (std::chrono::system_clock::now() - std::chrono::seconds(lifetime.value())) <=
+                                               std::chrono::system_clock::time_point(std::chrono::seconds(date_created.value()));
+                    }
+                }
+
+                if (modification_allowed) {
+                    auto path_to_key = ptree_path_type{node_path + "/key", '/'};
+                    // We can only check the path validity for key path
+                    key_type key_from_tom = tree->template get<key_type>(path_to_key);
+                    mapped_type mapped_from_tom = tree->template get<mapped_type>(ptree_path_type{node_path + "/mapped", '/'});
+                    value_type modified_value = pred(value_type(key_from_tom, mapped_from_tom));
+                    tree->put(path_to_key, modified_value.first);
+                    tree->put(ptree_path_type{node_path + "/mapped", '/'}, modified_value.second);
+
+                    if constexpr (AsNew) {
+                        // If the key is considered as new - modify the time created as current time
+                        tree->put(ptree_path_type{node_path + "/date_created", '/'},
+                                std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count());
+                    }
+
+                    ++modified_value_counter;
+                }
+            } catch( ptree::ptree_bad_path& ) {}
         };
 
         basic_operation</*Writer?*/true>(path, body);
@@ -604,57 +748,118 @@ private:
         return modified_value_counter;
     }
 
-    bool internal_insert( const path_type& path, const value_type& value ) {
-        bool exists = false;
+    template <typename Predicate>
+    std::size_t internal_modify_value( const path_type& path, const Predicate& pred ) {
+        return basic_modify_value</*as new = */false>(path ,pred);
+    }
+
+    template <typename Predicate>
+    std::size_t internal_modify_value_as_new( const path_type& path, const Predicate& pred ) {
+        return basic_modify_value</*as new = */true>(path, pred);
+    }
+
+    bool basic_insert( const path_type& path, const value_type& value,
+                       const std::chrono::seconds* lifetime_ptr )
+    {
+        bool inserted = false;
+
         auto body = [&]( const path_type& node_path, ptree::ptree* tree,
                          priority_type, const value_type& value ) {
             auto path_to_key = ptree_path_type{node_path + "/key", '/'};
             // Check if the path is already in a tree
-            try {
-                tree->template get<key_type>(path_to_key);
-                exists = true;
-                return;
-            } catch( ptree::ptree_bad_path& ) {
-                exists = false;
+            auto key = tree->template get_optional<key_type>(path_to_key);
+
+            bool insertion_allowed = true;
+            if (key) {
+                // Key exists
+                // But may be outdated
+                auto date_created = tree->template get_optional<date_type>(ptree_path_type{node_path + "/date_created", '/'});
+                auto lifetime = tree->template get_optional<date_type>(ptree_path_type{node_path + "/lifetime", '/'});
+
+                if (date_created && lifetime) {
+                    // If the key is outdated - insertion is allowed
+                    insertion_allowed = (std::chrono::system_clock::now() - std::chrono::seconds(lifetime.value())) >
+                                         std::chrono::system_clock::time_point(std::chrono::seconds(date_created.value()));
+                } else {
+                    // Key exists and not outdated - insertion is not allowed
+                    insertion_allowed = false;
+                }
             }
 
-            tree->put(path_to_key, value.first);
-            tree->put(ptree_path_type{node_path + "/mapped", '/'}, value.second);
+            if (insertion_allowed) {
+                tree->put(path_to_key, value.first);
+                tree->put(ptree_path_type{node_path + "/mapped", '/'}, value.second);
+                if (lifetime_ptr != nullptr) {
+                    tree->put(ptree_path_type{node_path + "/date_created", '/'},
+                              std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count());
+                    tree->put(ptree_path_type{node_path + "/lifetime", '/'},
+                              lifetime_ptr->count());
+                } else {
+                    // Remove lifetime if any
+                    tree->get_child(ptree_path_type{node_path, '/'}).erase("lifetime");
+                }
+                inserted = true;
+            }
         };
 
         basic_operation</*Writer?*/true>(path, body, value);
-        return !exists;
+        return inserted;
+    }
+
+    bool internal_insert( const path_type& path, const value_type& value ) {
+        return basic_insert(path, value, nullptr);
+    }
+
+    bool internal_insert_with_lifetime( const path_type& path, const value_type& value,
+                                        const std::chrono::seconds& lifetime )
+    {
+        return basic_insert(path, value, &lifetime);
     }
 
     bool internal_remove( const path_type& path ) {
-        bool exists = false;
+        bool erased = false;
         auto body = [&]( const path_type& node_path, ptree::ptree* tree, priority_type ) {
             auto path_to_key = ptree_path_type{node_path + "/key", '/'};
             // Check if the path exists
-            try {
-                tree->template get<key_type>(path_to_key);
-                exists = true;
-            } catch( ptree::ptree_bad_path& ) {
-                exists = false;
-                return;
+
+            auto key = tree->template get_optional<key_type>(path_to_key);
+
+            bool erasure_allowed = false;
+
+            if (key) {
+                // Key exists
+                // But may be outdated
+                auto date_created = tree->template get_optional<date_type>(ptree_path_type{node_path + "/date_created", '/'});
+                auto lifetime = tree->template get_optional<date_type>(ptree_path_type{node_path + "/lifetime", '/'});
+
+                if (date_created && lifetime) {
+                    // If the key is outdated - erasure is not allowed
+                    erasure_allowed = (std::chrono::system_clock::now() - std::chrono::seconds(lifetime.value())) <=
+                                      std::chrono::system_clock::time_point(std::chrono::seconds(date_created.value()));
+                } else {
+                    // Key exists and not outdated - insertion is allowed
+                    erasure_allowed = true;
+                }
             }
 
-            // Cutting the last element after the delimiter
-            path_type::const_iterator it;
+            if (erasure_allowed) {
+                // Cutting the last element after the delimiter
+                path_type::const_iterator it;
 
-            for (it = node_path.cend(); it != node_path.cbegin(); --it) {
-                if (*it == '/') break;
+                for (it = node_path.cend(); it != node_path.cbegin(); --it) {
+                    if (*it == '/') break;
+                }
+
+                path_type path_to_prev_node(node_path.cbegin(), it);
+                path_type curr_node_name(std::next(it), node_path.cend());
+
+                tree->get_child(ptree_path_type{path_to_prev_node, '/'}).erase(curr_node_name);
+                erased = true;
             }
-
-            path_type path_to_prev_node(node_path.cbegin(), it);
-            path_type curr_node_name(std::next(it), node_path.cend());
-
-            tree->get_child(ptree_path_type{path_to_prev_node, '/'}).erase(curr_node_name);
         };
 
         basic_operation</*Write?*/true>(path, body);
-
-        return exists;
+        return erased;
     }
 
     allocator_type                      my_allocator;

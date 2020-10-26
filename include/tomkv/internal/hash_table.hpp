@@ -43,7 +43,9 @@ public:
     using mapped_type = Mapped;
     using value_type = std::pair<const key_type, mapped_type>;
     using allocator_type = Allocator;
+private:
     using allocator_traits_type = std::allocator_traits<allocator_type>;
+public:
     using hasher = Hasher;
     using key_equal = KeyEqual;
     using size_type = std::size_t;
@@ -166,10 +168,9 @@ private:
             }
         }
 
-        void assign( node* n ) { my_node = n; }
-
         const key_type& key() const { return my_node->key(); }
     protected:
+        void assign( node* n ) { my_node = n; }
         node* get_node() const { return my_node; }
     private:
         node* my_node;
