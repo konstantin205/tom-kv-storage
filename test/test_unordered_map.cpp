@@ -374,3 +374,22 @@ TEST_CASE("test memory leaks") {
 
     // TODO: Add test with exception in the constructor
 }
+
+TEST_CASE("test for each") {
+    tomkv::unordered_map<int, int> umap;
+
+    for (int i = 0; i < 10; ++i) {
+        umap.emplace(i, i);
+    }
+
+    umap.for_each([]( std::pair<const int, int>& val ) { ++val.second; });
+
+    for (int i = 0; i < 10; ++i) {
+        typename decltype(umap)::read_accessor racc;
+        REQUIRE_MESSAGE(umap.find(racc, i), "Element should be found");
+        REQUIRE_MESSAGE(racc.key() == i, "Incorrect key");
+        REQUIRE_MESSAGE(racc.mapped() == i + 1, "Incorrect mapped");
+        REQUIRE_MESSAGE(racc.value().first == i, "Incorrect key(from value)");
+        REQUIRE_MESSAGE(racc.value().second == i + 1, "Incorrect mapped(from value)");
+    }
+}

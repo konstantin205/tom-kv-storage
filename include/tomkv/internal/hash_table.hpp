@@ -109,6 +109,11 @@ public:
 
     bool empty() const { return size() == 0; }
 
+    template <typename Predicate>
+    void for_each( const Predicate& pred ) {
+        internal_for_each(pred);
+    }
+
 private:
     class node {
     public:
@@ -632,6 +637,23 @@ private:
             return true;
         }
         return false;
+    }
+
+    // Not thread-safe
+    template <typename Predicate>
+    void internal_for_each( const Predicate& pred ) {
+        size_type bc = my_bucket_count.load(std::memory_order_relaxed);
+
+        for (size_type bucket_index = 0; bucket_index < bc; ++bucket_index) {
+            bucket* b = get_bucket(bucket_index);
+
+            node* node = b->load_list();
+
+            while(node != nullptr) {
+                pred(node->value());
+                node = node->next();
+            }
+        }
     }
 
     allocator_type&        my_allocator;

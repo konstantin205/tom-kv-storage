@@ -24,7 +24,7 @@
 
 #define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
 #include "doctest.h"
-#include <iostream>
+#include "utils.hpp"
 #include <tomkv/storage.hpp>
 #include <string>
 #include <thread>
@@ -820,4 +820,119 @@ TEST_CASE("test write outdated keys") {
     // K-V pair should not be available any more
     values = st.value(mount_path + "/d");
     REQUIRE_MESSAGE(values.size() == 0, "No keys should be found");
+}
+
+TEST_CASE("test parallel key/mapped/value modification") {
+    auto tom_name = prepare_tom("1");
+    std::vector<std::thread> thread_pool1;
+
+    std::string mount_path = "mnt";
+    std::string real_path = "a/c";
+
+    tomkv::storage<int, int> st;
+
+    st.mount(mount_path, tom_name, real_path);
+
+    std::string path = mount_path + "/d";
+
+    st.set_key(path, 0);
+
+    for (std::size_t i = 0; i < std::thread::hardware_concurrency(); ++i) {
+        thread_pool1.emplace_back([i, &st, &path] {
+            st.modify_key(path, [](int k) { return k + 1; });
+        });
+    }
+
+    for (auto& thr : thread_pool1) {
+        thr.join();
+    }
+
+    auto keys = st.key(path);
+
+    REQUIRE_MESSAGE(keys.size() == 1, "Only one key should be found");
+    REQUIRE_MESSAGE(*keys.begin() == std::thread::hardware_concurrency(), "Incorrect key after parallel modification");
+
+    std::vector<std::thread> thread_pool2;
+
+    st.set_key(path, 0);
+    st.set_mapped(path, 0);
+
+    for (std::size_t i = 0; i < std::thread::hardware_concurrency(); ++i) {
+        thread_pool2.emplace_back([i, &st, &path] {
+            st.modify_mapped(path, []( int m ) { return m + 1; });
+        });
+    }
+
+    for (auto& thr : thread_pool2) {
+        thr.join();
+    }
+
+    keys = st.key(path);
+    REQUIRE_MESSAGE(keys.size() == 1, "Only one key should be found");
+    REQUIRE_MESSAGE(*keys.begin() == 0, "Key should not be modified");
+
+    auto mapped = st.mapped(path);
+    REQUIRE_MESSAGE(mapped.size() == 1, "Only one mapped should be found");
+    REQUIRE_MESSAGE(*mapped.begin() == std::thread::hardware_concurrency(), "Incorrect mapped after parallel modification");
+
+    std::vector<std::thread> thread_pool3;
+
+    st.set_key(path, 0);
+    st.set_mapped(path, 0);
+
+    for (std::size_t i = 0; i < std::thread::hardware_concurrency(); ++i) {
+        thread_pool3.emplace_back([i, &st, &path] {
+            st.modify_value(path, []( const std::pair<int, int>& val ) { return std::pair{val.first + 1, val.second + 1}; });
+        });
+    }
+
+    for (auto& thr : thread_pool3) {
+        thr.join();
+    }
+
+    keys = st.key(path);
+    REQUIRE_MESSAGE(keys.size() == 1, "Only one key should be found");
+    REQUIRE_MESSAGE(*keys.begin() == std::thread::hardware_concurrency(), "Incorrect key after parallel modification");
+
+    mapped = st.mapped(path);
+    REQUIRE_MESSAGE(mapped.size() == 1, "Only one mapped should be found");
+    REQUIRE_MESSAGE(*mapped.begin() == std::thread::hardware_concurrency(), "Incorrect mapped after parallel modification");
+
+    auto values = st.value(path);
+    REQUIRE_MESSAGE(values.size() == 1, "Only one value should be found");
+    REQUIRE_MESSAGE(values.begin()->first == *keys.begin(), "Incorrect key in value after parallel modification");
+    REQUIRE_MESSAGE(values.begin()->second == *mapped.begin(), "Incorrect mapped in value after parallel modification");
+}
+
+TEST_CASE("test memory leaks") {
+    auto tom_name = prepare_tom("1");
+
+    using storage_type = tomkv::storage<int, int, utils::counting_allocator<std::pair<const int, int>>>;
+
+    utils::counting_allocator<std::pair<const int, int>> alloc;
+    {
+    storage_type st(alloc);
+
+    std::string mount_path = "mnt";
+    std::string real_path1 = "a/c";
+    std::string real_path2 = "f";
+
+    st.mount(mount_path, tom_name, real_path1);
+    st.mount(mount_path, tom_name, real_path2);
+
+    // Some operations with the storage
+    st.insert(mount_path + "/qq", std::pair{100, 1000});
+    st.insert(mount_path + "/qqq", std::pair{100, 1000});
+
+    st.remove(mount_path + "/qq");
+
+    } // st is deallocated here
+
+    REQUIRE_MESSAGE(alloc.allocations != 0, "Incorrect test setup");
+    REQUIRE_MESSAGE(alloc.allocations == alloc.deallocations,
+                    "Memory leak: number of allocations should be equal to the number of deallocations");
+    REQUIRE_MESSAGE(alloc.elements_allocated == alloc.elements_deallocated,
+                    "Memory leak: number of elements allocated should be equal to the number of elements deallocated");
+    REQUIRE_MESSAGE(alloc.elements_constructed == alloc.elements_destroyed,
+                    "Memory leak: number of elements constructed should be equal to the number of elements destroyed");
 }

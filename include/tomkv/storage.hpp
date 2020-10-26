@@ -55,7 +55,8 @@ struct unmounted_path : std::exception {
     }
 }; // struct unmounted_path
 
-template <typename Key, typename Mapped>
+template <typename Key, typename Mapped,
+          typename Allocator = std::allocator<std::pair<const Key, Mapped>>>
 class storage {
 public:
     using key_type = Key;
@@ -71,16 +72,20 @@ private:
     using id_hasher = std::hash<mount_id>;
     using id_equality = std::equal_to<mount_id>;
 
-    using allocator_type = std::allocator<value_type>; // TODO: change allocator template
+    using allocator_type = Allocator; // TODO: change allocator template
     using allocator_traits_type = std::allocator_traits<allocator_type>;
 public:
-    storage() : my_mount_table(my_hasher, my_id_equality, my_allocator),
-                my_tom_table(my_hasher, my_id_equality, my_allocator) {}
+    storage( const allocator_type& alloc = allocator_type() )
+        : my_allocator(alloc),
+          my_mount_table(my_hasher, my_id_equality, my_allocator),
+          my_tom_table(my_hasher, my_id_equality, my_allocator) {}
 
     storage( const storage& );
     storage( storage&& );
 
-    ~storage() {}
+    ~storage() {
+        internal_destroy();
+    }
 
     storage& operator=( const storage& );
     storage& operator=( storage&& );
@@ -860,6 +865,18 @@ private:
 
         basic_operation</*Write?*/true>(path, body);
         return erased;
+    }
+
+    void internal_destroy() {
+        my_mount_table.for_each([&]( typename mount_hash_table::value_type& value ) {
+            mount_node* node = value.second.load(std::memory_order_relaxed);
+
+            while(node != nullptr) {
+                mount_node* node_to_remove = node;
+                node = node->next();
+                delete_mount_node(node_to_remove);
+            }
+        });
     }
 
     allocator_type                      my_allocator;
