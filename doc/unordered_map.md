@@ -1,6 +1,8 @@
 # tomkv::unordered_map class template
 
-`tomkv::unordered_map` class template is an associative container that stores key-value pairs with unique keys.
+## Description
+
+`tomkv::unordered_map` class template for an associative container that stores key-value pairs with unique keys.
 
 `tomkv::unordered_map` is semanticaly similar to `std::unordered_map`, but permits multiple threads to concurrently insert, find and erase elements.
 
@@ -80,6 +82,10 @@ public:
     bool erase( const key_type& key );
 
     void erase( write_accessor& acc );
+
+    // Auxiliary functions
+    template <typename Predicate>
+    void for_each( const Predicate& pred );
 }; // class unordered_map
 
 } // namespace tomkv
@@ -87,134 +93,11 @@ public:
 
 ## Detailed description
 
-### Template parameters
-
-TODO: add description
-
 ### Member classes
 
-#### read_accessor class
+[read_accessor class](./read_accessor.md)
 
-Class `tomkv::unordered_map::read_accessor` is a class that provides read-only access to the element inside the `unordered_map`.
-
-`read_accessor` is called empty if it is not providing access to any element in `unordered_map`.
-
-##### Synopsis
-
-```cpp
-namespace tomkv {
-
-template <typename Key, typename Mapped, typename Hash, typename KeyEqual, typename Allocator>
-class unordered_map<Key, Mapped, Hash, KeyEqual, Allocator>::read_accessor {
-public:
-    // Constructors
-    read_accessor();
-    read_accessor( read_accessor&& other );
-
-    // Destructor
-    ~read_accessor();
-
-    // Observers
-    const key_type& key() const;
-    const mapped_type& mapped() const;
-    const value_type& value() const;
-
-    mapped_type& hazardous_mapped();
-    value_type& hazardous_value();
-
-    // Releasing
-    void release();
-};
-
-} // namespace tomkv
-```
-
-##### Detailed description
-
-###### Constructors
-
-```cpp
-read_accessor();
-```
-
-Constructs an empty accessor.
-
---------------------------------------------------------------
-
-```cpp
-read_accessor( read_accessor&& other );
-```
-
-Constructs an accessor by transfering ownership from `other` to the constructed accessor.
-
-`other` is left in an empty state.
-
-###### Destructor
-
-Destroys the `read_accessor`.
-
-An element, access for which is provided by the accessor stays unchanged.
-
-###### Observers
-
-```cpp
-const key_type& key() const;
-```
-
-**Returns: ** a constant reference to the key of the element, the access for which is provided by the accessor.
-
-The behaviour is undefined if the accessor is empty.
-
---------------------------------------------------------------
-
-```cpp
-const mapped_type& mapped() const;
-```
-**Returns: ** a constant reference to the "mapped" of the element, the access for which is provided by the accessor.
-
-The behaviour is undefined if the accessor is empty.
-
---------------------------------------------------------------
-
-```cpp
-const value_type& value() const;
-```
-
-**Returns: ** a constant reference to the element, the access for which is provided by the accessor.
-
-The behaviour is undefined if the accessor is empty.
-
---------------------------------------------------------------
-
-```cpp
-mapped_type& hazardous_mapped();
-```
-
-**Returns: ** a non-constant reference to the "mapped" of the element, the access for which is provided by the accessor.
-
-The behaviour is undefined if the accessor is empty.
-
-The `hazardous_` prefix means that modifying the returned non-constant reference can result in undefined behaviour because of data races (other threads can simultaneously read the same element). Some extra synchronization on the user-side is required to prevent data races in this point.
-
---------------------------------------------------------------
-
-```cpp
-value_type& hazardous_value();
-```
-
-**Returns: ** a non-constant reference to the element, the access for which is provided by the accessor.
-
-The behaviour is undefined if the accessor is empty.
-
-The `hazardous_` prefix means that modifying the returned non-constant reference can result in undefined behaviour because of data races (other threads can simultaneously read the same element). Some extra synchronization on the user-side is required to prevent data races in this point.
-
-###### Releasing
-
-```cpp
-void release();
-```
-
-Releases the access to the element. Accessor is left in an empty state.
+[write_accessor class](./write_accessor.md)
 
 ### Constructors
 
@@ -316,7 +199,7 @@ Value is constructed in-place from `args`.
 
 If the insertion succeeds, i.e. there was no element with equivalent key - assigns the accessor `acc` to provide read-only access to the inserted element.
 
-**Returns: ** `true` if the insertion succeeds, `false` otherwise.
+**Returns:** `true` if the insertion succeeds, `false` otherwise.
 
 --------------------------------------------------------------
 
@@ -331,7 +214,7 @@ Value is constructed in-place from `args`.
 
 If the insertion succeeds, i.e. there was no element with equivalent key - assigns the accessor `acc` to provide write access to the inserted element.
 
-**Returns: ** `true` if the insertion succeeds, `false` otherwise.
+**Returns:** `true` if the insertion succeeds, `false` otherwise.
 
 --------------------------------------------------------------
 
@@ -344,7 +227,7 @@ Attempts to insert a new value into the `unordered_map`.
 
 Value is constructed in-place from `args`.
 
-**Returns: ** `true` if the insertion succeeds, `false` otherwise.
+**Returns:** `true` if the insertion succeeds, `false` otherwise.
 
 ### Lookup
 
@@ -356,7 +239,7 @@ Releases the accessor `acc` and finds an element with the key equivalent to `key
 
 If an element is found - assigns the accessor `acc` to provide read-only access to the corresponding element.
 
-**Returns: ** `true` if the element is found, `false` otherwise.
+**Returns:** `true` if the element is found, `false` otherwise.
 
 --------------------------------------------------------------
 
@@ -368,7 +251,7 @@ Releases the accessor `acc` and finds an element with the key equivalent to `key
 
 If an elemnet is found - assigns the accessor `acc` to provide write access to the corresponding element.
 
-**Returns: ** `true` if the element is found, `false` otherwise.
+**Returns:** `true` if the element is found, `false` otherwise.
 
 ### Erasure
 
@@ -377,7 +260,7 @@ bool erase( const key_type& key );
 ```
 Attempts to erase an element with the key equivalent to `key` from the `unordered_map`.
 
-**Returns: ** `true` if the element was erased, `false` otherwise.
+**Returns:** `true` if the element was erased, `false` otherwise.
 
 --------------------------------------------------------------
 
@@ -388,3 +271,14 @@ void erase( write_accessor& acc );
 Erases the element accessed by `acc` from the `unordered_map`.
 
 The behaviour is undefined if the accessor is empty, i.e. not providing access to any element in `*this`.
+
+### Auxiliary functions
+
+```cpp
+template <typename Predicate>
+void for_each( const Predicate& pred );
+```
+
+Applies the `pred` function object to all key-value pairs in the `unordered_map`.
+
+The behaviour is undefined in case of any concurrent operations with the object.
