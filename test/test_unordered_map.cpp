@@ -393,3 +393,163 @@ TEST_CASE("test for each") {
         REQUIRE_MESSAGE(racc.value().second == i + 1, "Incorrect mapped(from value)");
     }
 }
+
+TEST_CASE("test clear") {
+    tomkv::unordered_map<int, int> umap;
+
+    for (int i = 0; i < 1000; ++i) {
+        umap.emplace(i, i);
+    }
+
+    REQUIRE_MESSAGE(umap.size() == 1000, "Incorrect size of the map");
+    umap.clear();
+    REQUIRE_MESSAGE(umap.size() == 0, "Incorrect size after clearing the map");
+
+    for (int i = 0; i < 1000; ++i) {
+        decltype(umap)::read_accessor racc;
+        bool found = umap.find(racc, i);
+        REQUIRE_MESSAGE(!found, "Old element should not be found after clearing");
+    }
+}
+
+template <typename UmapType>
+void test_copy_content( UmapType& umap_backup, UmapType& umap2 ) {
+    REQUIRE_MESSAGE(umap_backup.size() == umap2.size(), "Incorrect size of the copy");
+
+    for (int i = 0; i < 1000; ++i) {
+        typename UmapType::read_accessor racc1, racc2;
+        bool found_in_backup = umap_backup.find(racc1, i);
+        REQUIRE_MESSAGE(found_in_backup, "Incorrect test setup");
+        bool found_in_copy = umap2.find(racc2, i);
+        REQUIRE_MESSAGE(found_in_copy, "Element should be found in the copy of unordered_map");
+
+        REQUIRE_MESSAGE(racc2.key() == i, "Incorrect element in accessor after finding in the copy");
+        REQUIRE_MESSAGE(racc2.mapped() == i, "Incorrect element in accessor after finding in the copy");
+    }
+
+    // Try to insert one more element into the copy
+    bool emplaced = umap2.emplace(1000, 1000);
+    REQUIRE_MESSAGE(emplaced, "Insertion should be successful");
+    REQUIRE_MESSAGE(umap2.size() == umap_backup.size() + 1, "Incorrect size of the copy after modification");
+}
+
+template <bool CopyWithAllocator>
+void test_copy() {
+    using umap_type = tomkv::unordered_map<int, int>;
+    umap_type umap_backup;
+    umap_type* umap1_ptr = new umap_type();
+    umap_type& umap1 = *umap1_ptr;
+
+    for (int i = 0; i < 1000; ++i) {
+        REQUIRE_MESSAGE(umap_backup.emplace(i, i), "Emplace should be successful");
+        REQUIRE_MESSAGE(umap1.emplace(i, i), "Emplace should be successful");
+    }
+
+    REQUIRE_MESSAGE(umap_backup.size() == umap1.size(), "Incorrect test setup");
+
+    // Copy construct new map
+    if constexpr (CopyWithAllocator) {
+        umap_type umap2(umap1, umap1.get_allocator());
+        delete(umap1_ptr);
+        test_copy_content(umap_backup, umap2);
+    } else {
+        umap_type umap2 = umap1;
+        delete(umap1_ptr);
+        test_copy_content(umap_backup, umap2);
+    }
+}
+
+template <typename UmapType>
+void test_move_from_content( const UmapType& umap ) {
+    REQUIRE_MESSAGE(umap.size() == 0, "Incorrect moved-from umap size");
+
+    for (int i = 0; i < 1000; ++i) {
+        typename UmapType::read_accessor racc;
+        REQUIRE_MESSAGE(!umap.find(racc, i), "Element should not be found in moved-from umap");
+    }
+}
+
+template <bool MoveWithAllocator>
+void test_move() {
+    using umap_type = tomkv::unordered_map<int, int>;
+    umap_type umap_backup;
+    umap_type* umap1_ptr = new umap_type();
+    umap_type& umap1 = *umap1_ptr;
+
+    for (int i = 0; i < 1000; ++i) {
+        REQUIRE_MESSAGE(umap_backup.emplace(i, i), "Emplace should be successful");
+        REQUIRE_MESSAGE(umap1.emplace(i, i), "Emplace should be successful");
+    }
+
+    REQUIRE_MESSAGE(umap_backup.size() == umap1.size(), "Incorrect test setup");
+
+    // Move construct new map
+    if constexpr (MoveWithAllocator) {
+        // TODO: add tests for steal/deep move
+        umap_type umap2(std::move(umap1), umap1.get_allocator());
+        test_move_from_content(umap1);
+        delete(umap1_ptr);
+        test_copy_content(umap_backup, umap2);
+    } else {
+        umap_type umap2(std::move(umap1));
+        test_move_from_content(umap1);
+        delete(umap1_ptr);
+        test_copy_content(umap_backup, umap2);
+    }
+}
+
+TEST_CASE("test copy constructor") {
+    test_copy</*With allocator?*/true>();
+    test_copy</*With allocator?*/false>();
+}
+
+TEST_CASE("test move constructor") {
+    test_copy</*With allocator?*/true>();
+    test_copy</*With allocator?*/false>();
+}
+
+TEST_CASE("test assignments") {
+    using umap_type = tomkv::unordered_map<int, int>;
+
+    umap_type umap1;
+    umap_type umap2;
+
+    for (int i = 0; i < 10; ++i) {
+        umap1.emplace(i, i);
+        umap2.emplace(i + 100, i + 100);
+    }
+    umap2.emplace(200, 200);
+
+    umap_type umap3 = umap1;
+
+    // Copy assignment
+    umap1 = umap2;
+    REQUIRE_MESSAGE(umap1.size() == umap2.size(), "Incorrect size of copy-assigned unordered_map");
+
+    for (int i = 0; i < 10; ++i) {
+        umap_type::read_accessor racc;
+        REQUIRE_MESSAGE(!umap1.find(racc, i), "Old element should not be found in copy-assigned unordered_map");
+        REQUIRE_MESSAGE(umap1.find(racc, i + 100), "New element should be found in copy-assigned unordered_map");
+        REQUIRE_MESSAGE(umap2.find(racc, i + 100), "Copy-assigned-from unordered_map should be unchanged");
+    }
+
+    umap_type::read_accessor racc;
+    REQUIRE_MESSAGE(umap1.find(racc, 200), "New element should be found in copy-assigned unordered_map");
+    REQUIRE_MESSAGE(umap2.find(racc, 200), "Copy-assigned from unordered_map should be unchanged");
+    racc.release();
+
+    // Move assignment
+    umap3 = std::move(umap2);
+
+    REQUIRE_MESSAGE(umap3.size() == umap1.size(), "Incorrect size of move-assigned unordered_map");
+
+    for (int i = 0; i < 10; ++i) {
+        umap_type::read_accessor racc;
+        REQUIRE_MESSAGE(!umap3.find(racc, i), "Old element should not be found in move-assignmed unordered_map");
+        REQUIRE_MESSAGE(umap3.find(racc, i + 100), "New element should be found in move-assigned unordered_map");
+        REQUIRE_MESSAGE(!umap2.find(racc, i + 100), "Element shold be not be found in move-assigned-from unordered_map");
+    }
+
+    REQUIRE_MESSAGE(umap3.find(racc, 200), "New element should be founc in move-assigned unordered_map");
+    REQUIRE_MESSAGE(!umap2.find(racc, 200), "Move-assigned-from unordered_map should be unchanged");
+}

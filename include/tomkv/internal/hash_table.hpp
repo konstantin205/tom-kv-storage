@@ -59,13 +59,22 @@ public:
     hash_table( hasher& h,
                 key_equal& key_eq,
                 allocator_type& allocator )
+        : hash_table(init_bucket_count, h, key_eq, allocator) {}
+
+    hash_table( size_type bc,
+                hasher& h,
+                key_equal& key_eq,
+                allocator_type& allocator )
         : my_allocator(allocator),
           my_hasher(h),
           my_equality(key_eq),
-          my_bucket_count(init_bucket_count),
+          my_bucket_count(bc),
           my_size(0),
           my_rehash_required_flag(false),
           my_segment_table(create_table()) {}
+
+    hash_table( const hash_table& ) = delete;
+    // Copy assignment is implicitly deleted
 
     ~hash_table() {
         destroy_table();
@@ -114,6 +123,13 @@ public:
         internal_for_each(pred);
     }
 
+    // Not thread-safe
+    void clear() {
+        internal_clear();
+    }
+
+    allocator_type get_allocator() const { return my_allocator; }
+
 private:
     class node {
     public:
@@ -152,7 +168,15 @@ private:
         // actual head may be changed between search and try_insert
         bool try_insert( node* head, node* new_node ) {
             new_node->set_next(head);
-            return my_list.compare_exchange_strong(head, new_node);
+            return my_list.compare_exchange_strong(head, new_node, std::memory_order_acquire,
+                                                   std::memory_order_relaxed);
+        }
+
+        // Not thread-safe
+        void relaxed_insert( node* new_node ) {
+            node* head = load_list();
+            new_node->set_next(head);
+            my_list.store(new_node, std::memory_order_relaxed);
         }
     private:
         std::shared_mutex my_mutex;
@@ -220,7 +244,7 @@ public:
 
         ~write_accessor() { this->release(); }
         mapped_type& mapped() { return this->get_node()->mapped(); }
-        value_type& value() const { return this->get_node()->value(); }
+        value_type& value() { return this->get_node()->value(); }
 
     private:
         typename bucket::write_lock_type& lock() { return my_lock; }
@@ -272,6 +296,14 @@ private:
     // Returns a number of segments in the segment table
     static constexpr size_type size_of_the_table() {
         return sizeof(size_type) * 8;
+    }
+
+    bucket* get_bucket( size_type bucket_index ) const {
+        size_type segment_index = index_in_the_table(bucket_index);
+        __TOMKV_ASSERT(my_segment_table[segment_index].load(std::memory_order_relaxed) != nullptr);
+        size_type index_in_the_segment = bucket_index - first_index_in_segment(segment_index);
+
+        return my_segment_table[segment_index].load(std::memory_order_relaxed) + index_in_the_segment;
     }
 
     bucket* get_bucket( size_type bucket_index ) {
@@ -373,6 +405,8 @@ private:
             curr = curr->next();
             destroy_node(n);
         }
+
+        bucket_ptr->store_list(nullptr);
     }
 
     // Returns a pair where the first node is a node with equal key
@@ -656,6 +690,112 @@ private:
         }
     }
 
+    // Not thread-safe
+    void internal_clear() {
+        for (size_type i = 0; i < bucket_count(); ++i ) {
+            bucket* b = get_bucket(i);
+            clear_bucket(b);
+        }
+        my_size.store(0, std::memory_order_relaxed);
+    }
+
+protected:
+    size_type bucket_count() const { return my_bucket_count.load(std::memory_order_relaxed); }
+
+    template <bool Move, typename HashTable>
+    void internal_move_or_copy( HashTable&& other ) {
+        utils::raii_guard guard([&]{ clear(); });
+
+        // my_bucket_count should be copied
+        __TOMKV_ASSERT(bucket_count() == other.bucket_count());
+        my_size.store(other.my_size.load(std::memory_order_relaxed), std::memory_order_relaxed);
+        // TODO: add rehashing on copying/moving
+        my_rehash_required_flag.store(other.my_rehash_required_flag.load(std::memory_order_relaxed),
+                                      std::memory_order_relaxed);
+
+        for (size_type i = 0; i < bucket_count(); ++i) {
+            bucket* current_bucket = get_bucket(i);
+            bucket* other_bucket = other.get_bucket(i);
+            node* expected_head = nullptr;
+
+            node* n = other_bucket->load_list();
+            while(n != nullptr) {
+                // Create node by copying value
+                node* new_node = nullptr;
+                if constexpr (Move) {
+                    new_node = create_node(std::move(n->value()));
+                } else {
+                    new_node = create_node(n->value());
+                }
+                current_bucket->relaxed_insert(new_node);
+                n = n->next();
+            }
+        }
+        guard.release();
+    }
+
+    void internal_copy( const hash_table& other ) {
+        internal_move_or_copy</*Move*/false>(other);
+    }
+
+    // Stealing move
+    void internal_move( hash_table&& other ) {
+        // my_bucket_count should be copied
+
+        __TOMKV_ASSERT(bucket_count() == other.bucket_count());
+        my_size.store(other.my_size.load(std::memory_order_relaxed), std::memory_order_relaxed);
+        my_rehash_required_flag.store(other.my_size.load(std::memory_order_relaxed), std::memory_order_relaxed);
+
+        other.my_size.store(0, std::memory_order_relaxed);
+        other.my_rehash_required_flag.store(false, std::memory_order_relaxed);
+
+        for (size_type i = 0; i < bucket_count(); ++i) {
+            my_segment_table[i].store(other.my_segment_table[i].load(std::memory_order_relaxed), std::memory_order_relaxed);
+            other.my_segment_table[i].store(nullptr, std::memory_order_relaxed);
+        }
+    }
+
+    void internal_move_with_allocator( hash_table&& other, const allocator_type& alloc ) {
+        if constexpr (allocator_traits_type::is_always_equal::value) {
+            internal_move(std::move(other));
+        } else {
+            if (alloc == other.my_allocator) {
+                internal_move(std::move(other));
+            } else {
+                internal_move_or_copy</*Move*/true>(std::move(other));
+            }
+        }
+    }
+
+    void internal_copy_assign( const hash_table& other )
+    {
+        __TOMKV_ASSERT(this != &other);
+        clear();
+
+        my_bucket_count.store(other.my_bucket_count.load(std::memory_order_relaxed), std::memory_order_relaxed);
+        internal_copy(other);
+    }
+
+    void internal_move_assign( hash_table&& other) {
+        __TOMKV_ASSERT(this != &other);
+        clear();
+
+        my_bucket_count.store(other.my_bucket_count.load(std::memory_order_relaxed), std::memory_order_relaxed);
+        if constexpr (allocator_traits_type::propagate_on_container_move_assignment::value ||
+                      allocator_traits_type::is_always_equal::value)
+        {
+            // Stealing move
+            internal_move(std::move(other));
+        } else {
+            if (my_allocator == other.my_allocator) {
+                internal_move(std::move(other));
+            } else {
+                internal_move_or_copy</*Move?*/true>(other);
+            }
+        }
+    }
+
+private:
     allocator_type&        my_allocator;
     hasher&                my_hasher;
     key_equal&             my_equality;
@@ -663,6 +803,8 @@ private:
     std::atomic<size_type> my_size;
     std::atomic<bool>      my_rehash_required_flag;
     segment_type*          my_segment_table;
+
+    friend struct hash_table_auxiliary_accessor;
 }; // class hash_table
 
 } // namespace internal

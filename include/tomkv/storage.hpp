@@ -80,15 +80,14 @@ public:
           my_mount_table(my_hasher, my_id_equality, my_allocator),
           my_tom_table(my_hasher, my_id_equality, my_allocator) {}
 
-    storage( const storage& );
-    storage( storage&& );
+    storage( const storage& ) = delete;
+    storage& operator=( const storage& ) = delete;
 
     ~storage() {
         internal_destroy();
     }
 
-    storage& operator=( const storage& );
-    storage& operator=( storage&& );
+    allocator_type get_allocator() const { return my_allocator; }
 
     void mount( const mount_id& m_id, const tom_id& t_id,
                 const path_type& path, priority_type priority = priority_type(0) ) {

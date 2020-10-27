@@ -33,11 +33,7 @@
 namespace tomkv {
 namespace utils {
 
-#if TOMKV_DEBUG
 #define __TOMKV_ASSERT(condition) assert(condition)
-#else
-#define __TOMKV_ASSERT(condition) ((void)0)
-#endif
 
 // TODO: replace with intrinsic-based implementation
 std::size_t log2(std::size_t input) {

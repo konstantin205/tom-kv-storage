@@ -46,13 +46,65 @@ class unordered_map : public unordered_map_base<Hash, KeyEqual, Allocator>, publ
     using hash_table_base_type = hash_table<Key, Mapped, Hash, KeyEqual, Allocator>;
 public:
     unordered_map( const Hash& hash = Hash(), const KeyEqual& equal = KeyEqual(), const Allocator& alloc = Allocator() )
-        : unordered_base_type{hash, equal, alloc}, hash_table_base_type(this->my_key_hasher, this->my_key_equality, this->my_value_allocator) {}
+        : unordered_base_type{hash, equal, alloc},
+          hash_table_base_type(this->my_key_hasher, this->my_key_equality, this->my_value_allocator) {}
 
     unordered_map( const Hash& hash, const Allocator& alloc )
         : unordered_map(hash, KeyEqual(), alloc) {}
 
     unordered_map( const Allocator& alloc )
         : unordered_map(Hash(), alloc) {}
+
+    unordered_map( const unordered_map& other )
+        : unordered_map(other, std::allocator_traits<Allocator>::select_on_container_copy_construction(other.my_value_allocator)) {}
+
+    unordered_map( const unordered_map& other, const Allocator& alloc )
+        : unordered_base_type{other.my_key_hasher, other.my_key_equality, alloc},
+          hash_table_base_type(other.bucket_count(), this->my_key_hasher, this->my_key_equality, this->my_value_allocator)
+    {
+        hash_table_base_type::internal_copy(other);
+    }
+
+    unordered_map( unordered_map&& other )
+        : unordered_base_type{std::move(other.my_key_hasher), std::move(other.my_key_equality),
+                              std::move(other.my_value_allocator)},
+          hash_table_base_type(other.bucket_count(), this->my_key_hasher, this->my_key_equality, this->my_value_allocator)
+    {
+        hash_table_base_type::internal_move(std::move(other));
+    }
+
+    unordered_map( unordered_map&& other, const Allocator& alloc )
+        : unordered_base_type{std::move(other.my_key_hasher), std::move(other.my_key_equality), alloc},
+          hash_table_base_type(this->my_key_hasher, this->my_key_equality, this->my_value_allocator)
+    {
+        hash_table_base_type::internal_move_with_allocator(std::move(other), alloc);
+    }
+
+    unordered_map& operator=( const unordered_map& other ) {
+        if (this != &other) {
+            this->my_key_hasher = other.my_key_hasher;
+            this->my_key_equality = other.my_key_equality;
+
+            if constexpr (std::allocator_traits<Allocator>::propagate_on_container_copy_assignment::value) {
+                this->my_value_allocator = other.my_value_allocator;
+            }
+            hash_table_base_type::internal_copy_assign(other);
+        }
+        return *this;
+    }
+
+    unordered_map& operator=( unordered_map&& other ) {
+        if (this != &other) {
+            this->my_key_hasher = std::move(other.my_key_hasher);
+            this->my_key_equality = std::move(other.my_key_equality);
+
+            if constexpr (std::allocator_traits<Allocator>::propagate_on_container_move_assignment::value) {
+                this->my_value_allocator = std::move(other.my_value_allocator);
+            }
+            hash_table_base_type::internal_move_assign(std::move(other));
+        }
+        return *this;
+    }
 }; // class unordered_map
 
 } // namespace internal
