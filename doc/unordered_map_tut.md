@@ -96,4 +96,4 @@ Note that `tomkv::unordered_map` allows multiple threads to concurrently insert,
 
 It is really important to release accessors (via calling the `release()` method on accessor instance) to allow other threads to access the map.
 
-For more detailed documentation see [unordered_map.md](this page).
+For more detailed documentation see [this page](unordered_map.md).

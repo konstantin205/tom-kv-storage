@@ -125,4 +125,4 @@ If the specified path is already presented in the tom: the function `insert` wil
 
 Note that `tomkv::storage` class permits multiple threads to concurrently modify, insert and remove values to one or several toms as well as mount (or unmount) some mount identificators.
 
-For more detailed documentation see [storage.md](this page).
+For more detailed documentation see [this page](storage.md).

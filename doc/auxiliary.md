@@ -34,5 +34,3 @@ bool remove_tom( const std::string& tom_name );
 If the file with the name `tom_name` exists, removes this file. Does nothing otherwise.
 
 **Returns:** `true` if the file was removed, `false` otherwise.
-
-
