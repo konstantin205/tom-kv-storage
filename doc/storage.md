@@ -2,27 +2,7 @@
 
 ## Description
 
-`tomkv::storage` class template for a virtual node-based storage that mounts paths from *toms* its nodes.
-
-*Tom* is an XML file contains key-value pairs as a hierarchial structure. The tom has the following format
-
-```xml
-<tom>
-<root>
-<node-id-1>
-    <key>KEY</key>
-    <mapped>MAPPED</mapped>
-    <!--Optional--><date_created>DATE_CREATED</date_created>
-    <!--Optional--><lifetime>LIFETIME</lifetime>
-    <node-id-2>
-        <!--Other nodes and values-->
-    </node-id-2>
-</node-id-1>
-</root>
-</tom>
-```
-
-Each node of the tom contains key-value pair and all of its parent nodes. The node also can contains the date of node creation and the node lifetime. The purpose and detailed description of these parameters will be described later.
+`tomkv::storage` class template for a virtual node-based storage that mounts paths from toms its nodes.
 
 `storage` class allows to mount some path from the tom to the storage, e.g. the path `a/b` can be mounted to the node with mount identificator `mnt`. It allows to access the data from the tom using the corresponding mount identificator.
 
