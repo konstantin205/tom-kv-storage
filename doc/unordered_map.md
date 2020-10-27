@@ -2,7 +2,7 @@
 
 ## Description
 
-`tomkv::unordered_map` class template for an associative container that stores key-value pairs with unique keys.
+`tomkv::unordered_map` class template for an associative container that stores key-value pairs with unique keys, organized into buckets.
 
 `tomkv::unordered_map` is semanticaly similar to `std::unordered_map`, but permits multiple threads to concurrently insert, find and erase elements.
 
@@ -34,6 +34,11 @@ public:
     using size_type = std::size_t;
 
     // Constructors
+    unordered_map( size_type bc,
+                   const hasher& hash = hasher(),
+                   const key_equal& eq = key_equal(),
+                   const allocator_type& alloc = allocator_type() )
+
     unordered_map( const hasher& hash = hasher(),
                    const key_equal& eq = key_equal(),
                    const allocator_type& alloc = allocator_type() );
@@ -60,6 +65,7 @@ public:
     class write_accessor;
 
     // Observers
+    allocator_type get_allocator() const;
     size_type size() const;
     bool empty() const;
 
@@ -84,6 +90,7 @@ public:
     void erase( write_accessor& acc );
 
     // Auxiliary functions
+    // Not thread-safe
     template <typename Predicate>
     void for_each( const Predicate& pred );
 }; // class unordered_map
@@ -102,12 +109,23 @@ public:
 ### Constructors
 
 ```cpp
+unordered_map( size_type bc,
+               const hasher& hash = hasher(),
+               const key_equal& key_eq = key_equal(),
+               const allocator_type& alloc = allocator_type() );
+```
+
+Creates an empty `tomkv::unordered_map` object with `bc` buckets. Associates specified hasher, key equality predicate and allocator with the created object.
+
+```cpp
 unordered_map( const hasher& hash = hasher(),
                const key_equal& key_eq = key_equal(),
                const allocator_type& alloc = allocator_type() );
 ```
 
 Creates an empty `tomkv::unordered_map` object. Associates specified hasher, key equality predicate and allocator with the created object.
+
+The initial number of buckets is unspecified.
 
 --------------------------------------------------------------
 
@@ -131,7 +149,9 @@ Equivalent to `unordered_map(hasher(), key_equal(), alloc)`.
 unordered_map( const unordered_map& other );
 ```
 
-TODO: add description after implementation is done
+Creates a copy of `other`. Copy-constructs the stored hasher and key equality predicate.
+
+Associates the allocator obtained by `std::allocator_traits<allocator_type>::select_on_container_copy_construction(other.get_allocator())` with the created object.
 
 --------------------------------------------------------------
 
@@ -139,7 +159,9 @@ TODO: add description after implementation is done
 unordered_map( const unordered_map& other, const allocator_type& alloc );
 ```
 
-TODO: add description after implementation is done
+Creates a copy of `other`. Copy-constructs the stored hasher and key equality predicate.
+
+Associates the allocator `alloc` with the created object.
 
 --------------------------------------------------------------
 
@@ -147,7 +169,11 @@ TODO: add description after implementation is done
 unordered_map( unordered_map&& other );
 ```
 
-TODO: add description after implementation is done
+Creates an object by transfering all elements from `other` using move semantics.
+
+Move-constructs the stored hasher, key equality predicate and allocator.
+
+`other` is left in a valid, but unspecified state.
 
 --------------------------------------------------------------
 
@@ -155,7 +181,13 @@ TODO: add description after implementation is done
 unordered_map( unordered_map&& other, const allocator_type& alloc );
 ```
 
-TODO: add description after implementation is done
+Creates an object by transfering all elements from `other` using move semantics.
+
+Move-constructs the stored hasher and key equality predicate.
+
+Associates the allocator `alloc` with the created object.
+
+`other` is left in a valid, but unspecified state.
 
 --------------------------------------------------------------
 
@@ -175,7 +207,13 @@ The behavior is undefined in case of any concurrent operations with the object w
 unordered_map& operator=( const unordered_map& other );
 ```
 
-TODO: add description after implementation is done
+Replaces all elements in `*this` by the copies of the elements in `other`.
+
+Copy-assigns the stored hasher and key equality predicate.
+
+Copy-assigns the stored allocator object if `std::allocator_traits<allocator_type>::propagate_on_container_copy_assignment::value` is `true`.
+
+**Returns:** a reference to `*this`.
 
 --------------------------------------------------------------
 
@@ -183,8 +221,39 @@ TODO: add description after implementation is done
 unordered_map& operator=( unordered_map&& other );
 ```
 
-TODO: add description after implementation is done
+Replaces all elements in `*this` by the elements in `other` using move semantics.
 
+Move-assigns the stored hasher and key equality predicate.
+
+Move-assigns the stored allocator object if `std::allocator_traits<allocator_type>::propagate_on_container_move_assignment::value` is `true`.
+
+`other` is left in a valid, but unspecified state.
+
+**Returns:** a reference to `*this`.
+
+### Observers
+
+```cpp
+allocator_type get_allocator() const;
+```
+
+**Returns:** a copy of the allocator, associated with the object.
+
+--------------------------------------------------------------
+
+```cpp
+size_type size() const;
+```
+
+**Returns:** the number of elements in the container.
+
+--------------------------------------------------------------
+
+```cpp
+bool empty() const;
+```
+
+**Returns:** `true` if the container is empty, `false` otherwise.
 
 ### Insertion
 

@@ -98,18 +98,15 @@ public:
     // Constructors
     storage( const allocator_type& alloc = allocator_type() );
 
-    storage( const storage& other );
-    storage( const storage& other, const allocator_type& alloc );
-
-    storage( storage&& other );
-    storage( storage&& other, const allocator_type& alloc );
+    // Non-copyable and non-movable
+    storage( const storage& ) = delete;
+    storage& operator=( const storage& ) = delete;
 
     // Destructor
     ~storage();
 
-    // Assignment operators
-    storage& operator=( const storage& other );
-    storage& operator=( storage&& other );
+    // Observers
+    allocator_type get_allocator() const;
 
     // Mounting
     void mount( const mount_id& m_id,
@@ -121,7 +118,7 @@ public:
 
     std::list<std::pair<tom_id, path_type>> get_mounts( const mount_id& m_id );
 
-    // Observers
+    // Reading
     std::unordered_multiset<key_type> key( const path_type& path );
 
     std::unordered_multiset<mapped_type> mapped( const path_type& path );
@@ -183,7 +180,7 @@ Each node in the tom have optional parameters `<date_created>` and `<lifetime>`.
 ### Constructors
 
 ```cpp
-storage( const allocator_type& alloc );
+storage( const allocator_type& alloc = allocator_type() );
 ```
 
 Creates an empty `tomkv::storage` object. Associates specified allocator with the created object.
@@ -191,36 +188,10 @@ Creates an empty `tomkv::storage` object. Associates specified allocator with th
 --------------------------------------------------------------
 
 ```cpp
-storage( const storage& other );
+storage( const storage& ) = delete;
 ```
 
-TODO: add description after implementation is done
-
---------------------------------------------------------------
-
-```cpp
-storage( const storage& other, const allocator_type& alloc );
-```
-
-TODO: add description after implementation is done
-
---------------------------------------------------------------
-
-```cpp
-storage( storage&& other );
-```
-
-TODO: add description after implementation is done
-
---------------------------------------------------------------
-
-```cpp
-storage( storage&& other, const allocator_type& alloc );
-```
-
-TODO: add description after implementation is done
-
---------------------------------------------------------------
+Copying the `tomkv::storage` class is not permitted.
 
 ### Destructor
 
@@ -235,20 +206,18 @@ The behavior is undefined in case of any concurrent operations with the object w
 ### Assignment operators
 
 ```cpp
-storage& operator=( const storage& other );
+storage& operator=( const storage& ) = delete;
 ```
 
-TODO: add description after implementation is done
+Copying the `tomkv::storage` class is not permitted.
 
---------------------------------------------------------------
+### Observers
 
 ```cpp
-storage& operator=( storage&& other );
+allocator_type get_allocator() const;
 ```
 
-TODO: add description after implementation is done
-
---------------------------------------------------------------
+**Returns:** a copy of the allocator, associated with the object.
 
 ### Mounting
 
@@ -283,7 +252,7 @@ std::list<std::pair<tom_id, path_type>> get_mounts( const mount_id& m_id );
 
 Each element in the returned list is a pair in which the first element is the identifier of the tom and the second element is the real path inside of the tom.
 
-### Observers
+### Reading
 
 ```cpp
 std::unordered_multiset<key_type> key( const path_type& path );

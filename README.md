@@ -52,6 +52,6 @@ multiple threads to concurrently insert, find and erase elements inside of it.
 
 [tomkv::unordered_map class template](./doc/unordered_map.md)
 
-[Auxiliary functions](./doc/aux.md)
+[Auxiliary functions](./doc/auxiliary.md)
 
 
