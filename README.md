@@ -22,7 +22,7 @@
 </tom>
 ```
 
-Each node of the tom contains key-value pair and all of its parent nodes. The node also can contains the date of node creation and the node lifetime. The purpose and detailed description of these parameters is described [here](./docs/storage.md).
+Each node of the tom contains key-value pair and all of its parent nodes. The node also can contains the date of node creation and the node lifetime. The purpose and detailed description of these parameters is described [here](./doc/storage.md).
 
 `tomkv` library provides a class template `storage` that provides a view into one or several tom files using mounting mechanism.
 `storage` permits multiple threads to concurrently mounting/unmounting nodes from toms and modifying key-value pairs inside of them.
@@ -34,8 +34,9 @@ multiple threads to concurrently insert, find and erase elements inside of it.
 
 ## 5 minutes tutorial
 
-[tomkv::storage](./docs/storage_tut.md)
-[tomkv::unordered_map](./docs/unordered_map_tut.md)
+[tomkv::storage](./doc/storage_tut.md)
+
+[tomkv::unordered_map](./doc/unordered_map_tut.md)
 
 ## System requirements
 
@@ -47,10 +48,10 @@ multiple threads to concurrently insert, find and erase elements inside of it.
 
 ## Documentation
 
-[tomkv::storage class template](./docs/storage.md)
+[tomkv::storage class template](./doc/storage.md)
 
-[tomkv::unordered_map class template](./docs/unordered_map.md)
+[tomkv::unordered_map class template](./doc/unordered_map.md)
 
-[Auxiliary functions](./docs/aux.md)
+[Auxiliary functions](./doc/aux.md)
 
 
