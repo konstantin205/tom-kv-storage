@@ -79,7 +79,7 @@ TEST_CASE("test serial operations") {
     REQUIRE_MESSAGE(!inserted, "Duplicated key was successfully inserted");
     REQUIRE_MESSAGE((racc.key() == 1), "Incorrect value of read accessor after duplicated key insertion");
     REQUIRE_MESSAGE((racc.mapped() == 1), "Incorrect value of read accessor after duplicated key insertion");
-    REQUIRE_MESSAGE((racc.value().first == 1, racc.value().second == 1), "Incorrect value of read accessor after duplicated key insertion");
+    REQUIRE_MESSAGE((racc.value().first == 1 && racc.value().second == 1), "Incorrect value of read accessor after duplicated key insertion");
     racc.release();
     REQUIRE_MESSAGE((umap.size() == 2), "Incorrect table size");
     REQUIRE_MESSAGE(!umap.empty(), "umap is empty after no-changing insertion");
@@ -175,7 +175,6 @@ TEST_CASE("test parallel operations") {
 
     using umap_type = tomkv::unordered_map<key_type, mapped_type>;
     using read_accessor = typename umap_type::read_accessor;
-    using write_accessor = typename umap_type::write_accessor;
 
     // Constructor
     {
@@ -321,6 +320,7 @@ TEST_CASE("test parallel operations") {
         for (auto& item : pre_existing_elements) {
             read_accessor racc;
             bool found = umap.find(racc, item + 1000);
+            REQUIRE_MESSAGE(found, "Element should be found");
             REQUIRE_MESSAGE(racc.key() == item + 1000, "Incorrect key for found element (new)");
             REQUIRE_MESSAGE(racc.mapped() == item, "Incorrect mapped for found element (new)");
         }

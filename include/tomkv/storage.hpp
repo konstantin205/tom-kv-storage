@@ -431,6 +431,7 @@ private:
             tom_read_accessor tracc;
             bool found = my_tom_table.find(tracc, curr_mount_node->tom_name());
             __TOMKV_ASSERT(found);
+            utils::suppress_unused(found);
 
             tom_info& t_info = tracc.hazardous_mapped();
 
@@ -464,8 +465,10 @@ private:
 
             node_path.append("tom/root/");
             node_path.append(curr_mount_node->real_path());
-            node_path.append("/");
-            node_path.append(additional_path);
+            if (!additional_path.empty()) {
+                node_path.append("/");
+                node_path.append(additional_path);
+            }
 
             body(node_path, t_info.tree(), curr_mount_node->priority(), std::forward<AdditionalArgs>(additional_args)...);
 
@@ -691,7 +694,7 @@ private:
 
                     ++modified_mapped_counter;
                 }
-            } catch( ptree::ptree_bad_path ) {}
+            } catch( ptree::ptree_bad_path& ) {}
         };
 
         basic_operation</*Writer?*/true>(path, body);

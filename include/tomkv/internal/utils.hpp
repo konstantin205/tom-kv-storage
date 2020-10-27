@@ -87,6 +87,9 @@ public:
     }
 }; // class exponential_backoff
 
+template <typename... Args>
+void suppress_unused( Args&&... ) {}
+
 } // namespace utils
 } // namespace tomkv
 

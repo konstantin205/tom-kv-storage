@@ -183,15 +183,15 @@ TEST_CASE("test unmounted path") {
 
     try {
         auto key_list = st.key("a/b/c");
-    } catch(tomkv::unmounted_path) {}
+    } catch(tomkv::unmounted_path&) {}
 
     try {
         auto mapped_list = st.mapped("a/b/c");
-    } catch(tomkv::unmounted_path) {}
+    } catch(tomkv::unmounted_path&) {}
 
     try {
         auto value_list = st.value("a/b/c");
-    } catch(tomkv::unmounted_path) {}
+    } catch(tomkv::unmounted_path&) {}
 }
 
 TEST_CASE("test mount and read(multiple mount)") {
@@ -358,18 +358,18 @@ TEST_CASE("test unmount") {
     try {
         st.key(mount_path + "/d");
         REQUIRE_MESSAGE(false, "st.key call should throw");
-    } catch( tomkv::unmounted_path ) {}
+    } catch( tomkv::unmounted_path& ) {}
 
 
     try {
         st.mapped(mount_path + "/d");
         REQUIRE_MESSAGE(false, "st.mapped call should throw");
-    } catch( tomkv::unmounted_path ) {}
+    } catch( tomkv::unmounted_path& ) {}
 
     try {
         st.value(mount_path + "/d");
         REQUIRE_MESSAGE(false, "st.value call should throw");
-    } catch( tomkv::unmounted_path ) {}
+    } catch( tomkv::unmounted_path& ) {}
 
     // Try to unmount again
     unmounted = st.unmount(mount_path);
@@ -966,5 +966,29 @@ TEST_CASE("test memory leaks") {
                     "Memory leak: number of elements allocated should be equal to the number of elements deallocated");
     REQUIRE_MESSAGE(alloc.elements_constructed == alloc.elements_destroyed,
                     "Memory leak: number of elements constructed should be equal to the number of elements destroyed");
+    tomkv::remove_tom(tom_name);
+}
+
+TEST_CASE("read mount without additional path") {
+    auto tom_name = prepare_tom("1");
+
+    using storage_type = tomkv::storage<int, int>;
+
+    storage_type st;
+
+    st.mount("mnt", tom_name, "a/c");
+
+    auto keys = st.key("mnt");
+    REQUIRE_MESSAGE(keys.size() == 1, "Only one key should be readed");
+    REQUIRE_MESSAGE(*keys.begin() == 3, "Incorrect key");
+
+    auto mapped = st.mapped("mnt");
+    REQUIRE_MESSAGE(mapped.size() == 1, "Only one mapped should be readed");
+    REQUIRE_MESSAGE(*mapped.begin() == 300, "Incorrect mapped");
+
+    auto values = st.value("mnt");
+    REQUIRE_MESSAGE(values.size() == 1, "Only one value should be readed");
+    REQUIRE_MESSAGE(values.begin()->first == 3, "Incorrect key(value)");
+    REQUIRE_MESSAGE(values.begin()->second == 300, "Incorrect mapped(value)");
     tomkv::remove_tom(tom_name);
 }

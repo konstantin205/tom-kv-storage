@@ -20,6 +20,12 @@
 # * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # * SOFTWARE.
 
+if (MSVC)
+    add_compile_options(/Wx /W4)
+else()
+    add_compile_options(-Wall -Wextra -pedantic -Werror)
+endif()
+
 add_executable(test_unordered_map test_unordered_map.cpp)
 add_executable(test_storage test_storage.cpp)
 add_executable(test_tom_management test_tom_management.cpp)

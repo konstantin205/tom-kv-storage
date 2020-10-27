@@ -448,6 +448,7 @@ private:
                 bucket* new_bucket = get_bucket(new_bucket_index);
                 bool inserted = new_bucket->try_insert(new_bucket->load_list(), n);
                 __TOMKV_ASSERT(inserted);
+                utils::suppress_unused(inserted);
                 n = next;
             }
         }
@@ -676,6 +677,7 @@ private:
     // Not thread-safe
     template <typename Predicate>
     void internal_for_each( const Predicate& pred ) {
+        __TOMKV_ASSERT(false);
         size_type bc = my_bucket_count.load(std::memory_order_relaxed);
 
         for (size_type bucket_index = 0; bucket_index < bc; ++bucket_index) {
@@ -716,7 +718,6 @@ protected:
         for (size_type i = 0; i < bucket_count(); ++i) {
             bucket* current_bucket = get_bucket(i);
             bucket* other_bucket = other.get_bucket(i);
-            node* expected_head = nullptr;
 
             node* n = other_bucket->load_list();
             while(n != nullptr) {
