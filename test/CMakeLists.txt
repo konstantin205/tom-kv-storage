@@ -20,9 +20,6 @@
 # * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # * SOFTWARE.
 
-set(INCLUDE_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/../include)
-include_directories(${INCLUDE_DIRECTORY})
-link_libraries(Threads::Threads)
-
 add_executable(test_unordered_map test_unordered_map.cpp)
 add_executable(test_storage test_storage.cpp)
+add_executable(test_tom_management test_tom_management.cpp)

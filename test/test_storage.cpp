@@ -26,8 +26,11 @@
 #include "doctest.h"
 #include "utils.hpp"
 #include <tomkv/storage.hpp>
+#include <tomkv/tom_management.hpp>
 #include <string>
 #include <thread>
+#include "boost/property_tree/ptree.hpp"
+#include "boost/property_tree/xml_parser.hpp"
 
 namespace pt = boost::property_tree;
 
@@ -127,6 +130,7 @@ TEST_CASE("test mount and read(single mount)") {
     REQUIRE_MESSAGE(value_list.size() == 1, "Only one path should be mounted");
     REQUIRE_MESSAGE(value_list.begin()->first == *key_list.begin(), "Incorrect key in value on the path mnt/d");
     REQUIRE_MESSAGE(value_list.begin()->second == *mapped_list.begin(), "Incorrect mapped in value on the path mnt/d");
+    tomkv::remove_tom(tom_name);
 }
 
 TEST_CASE("test mount, modify and read (single mount)") {
@@ -171,6 +175,7 @@ TEST_CASE("test mount, modify and read (single mount)") {
     mapped_list = storage.mapped(mount_path + "/d");
     REQUIRE_MESSAGE(mapped_list.size() == 1, "Only one key should be mounted");
     REQUIRE_MESSAGE(*mapped_list.begin() == 2200, "Mapped was not modified(value)");
+    tomkv::remove_tom(tom_name);
 }
 
 TEST_CASE("test unmounted path") {
@@ -245,6 +250,8 @@ TEST_CASE("test mount and read(multiple mount)") {
     REQUIRE_MESSAGE(value_list.size() == 1, "The path is valid for only one mount");
     REQUIRE_MESSAGE(value_list.begin()->first == *key_list.begin(), "Incorrect key in value in case of multiple mount with one valid path");
     REQUIRE_MESSAGE(value_list.begin()->second == *mapped_list.begin(), "Incorrect mapped in value in case of multiple mount with one valid path");
+    tomkv::remove_tom(tom1_name);
+    tomkv::remove_tom(tom2_name);
 }
 
 TEST_CASE("test mount, modify and read(multiple mount)") {
@@ -329,6 +336,8 @@ TEST_CASE("test mount, modify and read(multiple mount)") {
     value_list = st2.value(mount_path + "/d");
     REQUIRE_MESSAGE(value_list.begin()->first == 55, "Value was not modified");
     REQUIRE_MESSAGE(value_list.begin()->second == 5500, "Value was not modified");
+    tomkv::remove_tom(tom1_name);
+    tomkv::remove_tom(tom2_name);
 }
 
 TEST_CASE("test unmount") {
@@ -365,6 +374,7 @@ TEST_CASE("test unmount") {
     // Try to unmount again
     unmounted = st.unmount(mount_path);
     REQUIRE_MESSAGE(!unmounted, "The second unmount should fail");
+    tomkv::remove_tom(tom_name);
 }
 
 TEST_CASE("test insert") {
@@ -429,6 +439,7 @@ TEST_CASE("test insert") {
     REQUIRE_MESSAGE(value_list.size() == 1, "Value should be readed");
     REQUIRE_MESSAGE(value_list.begin()->first == 48, "Incorrect value inserted");
     REQUIRE_MESSAGE(value_list.begin()->second == 4800, "Incorrect value inserted");
+    tomkv::remove_tom(tom_name);
 }
 
 TEST_CASE("test remove") {
@@ -459,6 +470,7 @@ TEST_CASE("test remove") {
     std::this_thread::sleep_for(std::chrono::seconds(1));
     erased = st.remove(mount_path + "/d");
     REQUIRE_MESSAGE(!erased, "Erasure of outdated key should fail");
+    tomkv::remove_tom(tom_name);
 }
 
 TEST_CASE("test get mounts") {
@@ -496,6 +508,9 @@ TEST_CASE("test get mounts") {
     for(auto item : found_toms) {
         REQUIRE_MESSAGE(item == 1, "All toms should be found");
     }
+    tomkv::remove_tom(tom1_name);
+    tomkv::remove_tom(tom2_name);
+    tomkv::remove_tom(tom3_name);
 }
 
 TEST_CASE("test parallel mount") {
@@ -536,21 +551,26 @@ TEST_CASE("test parallel mount") {
             REQUIRE_MESSAGE(it != mounts.end(), "Cannot found mount tom");
         }
     }
+
+    for (auto& tom_name : tom_names) {
+        tomkv::remove_tom(tom_name);
+    }
 }
 
 TEST_CASE("test parallel mount-unmount") {
     std::vector<std::thread> thread_pool;
 
     tomkv::storage<int, int> st;
+    std::string tom_name = "tom.xml";
 
     for (std::size_t i = 0; i < std::thread::hardware_concurrency(); ++i) {
-        st.mount(std::string("mnt") + std::to_string(i), "tom.xml", "a/b/c");
+        st.mount(std::string("mnt") + std::to_string(i), tom_name, "a/b/c");
     }
 
     for (std::size_t i = 0; i < std::thread::hardware_concurrency(); ++i) {
-        thread_pool.emplace_back([i, &st] {
+        thread_pool.emplace_back([i, &st, &tom_name] {
             if (i % 2 == 0) {
-                st.mount(std::string("mnt") + std::to_string(i + std::thread::hardware_concurrency()), "tom.xml", "a/b/c");
+                st.mount(std::string("mnt") + std::to_string(i + std::thread::hardware_concurrency()), tom_name, "a/b/c");
             } else {
                 st.unmount(std::string("mnt") + std::to_string(i));
             }
@@ -567,8 +587,8 @@ TEST_CASE("test parallel mount-unmount") {
             auto mounts2 = st.get_mounts(std::string("mnt") + std::to_string(i));
             REQUIRE_MESSAGE(mounts.size() == 1, "Incorrect size of the mounts");
             REQUIRE_MESSAGE(mounts2.size() == 1, "Even indexes should not be unmounted");
-            REQUIRE_MESSAGE(mounts.front().first == "tom.xml", "Incorrect name of the mount tom");
-            REQUIRE_MESSAGE(mounts2.front().first == "tom.xml", "Incorrect name of the mount tom");
+            REQUIRE_MESSAGE(mounts.front().first == tom_name, "Incorrect name of the mount tom");
+            REQUIRE_MESSAGE(mounts2.front().first == tom_name, "Incorrect name of the mount tom");
             REQUIRE_MESSAGE(mounts.front().second == "a/b/c", "Incorrect path of the mount tom");
             REQUIRE_MESSAGE(mounts2.front().second == "a/b/c", "Incorrect path of the mount tom");
         } else {
@@ -576,6 +596,8 @@ TEST_CASE("test parallel mount-unmount") {
             REQUIRE_MESSAGE(mounts.size() == 0, "Odd indexes should be unmounted");
         }
     }
+
+    tomkv::remove_tom(tom_name);
 }
 
 TEST_CASE("test mount with priority") {
@@ -642,6 +664,10 @@ TEST_CASE("test mount with priority") {
     REQUIRE_MESSAGE(it3 != value_mmap.end(), "Key with no priority should be found");
     REQUIRE_MESSAGE(it3->first == 10, "Incorrect iterator returned from find");
     REQUIRE_MESSAGE(it3->second == 1000, "Mapped from the key with no priority should be returned");
+
+    tomkv::remove_tom(tom1_name);
+    tomkv::remove_tom(tom2_name);
+    tomkv::remove_tom(tom3_name);
 }
 
 TEST_CASE("test modify key/mapped/value") {
@@ -698,6 +724,8 @@ TEST_CASE("test modify key/mapped/value") {
 
     REQUIRE_MESSAGE(value.first == key + 1, "Incorrect key(from value) after modification");
     REQUIRE_MESSAGE(value.second == mapped + 1, "Incorrect mapped(from value) after modification");
+
+    tomkv::remove_tom(tom_name);
 }
 
 TEST_CASE("test read outdated keys") {
@@ -741,6 +769,7 @@ TEST_CASE("test read outdated keys") {
 
     values = st.value(mount_path + "/d");
     REQUIRE_MESSAGE(values.size() == 0, "Value should not be available");
+    tomkv::remove_tom(tom_name);
 }
 
 TEST_CASE("test write outdated keys") {
@@ -820,6 +849,7 @@ TEST_CASE("test write outdated keys") {
     // K-V pair should not be available any more
     values = st.value(mount_path + "/d");
     REQUIRE_MESSAGE(values.size() == 0, "No keys should be found");
+    tomkv::remove_tom(tom_name);
 }
 
 TEST_CASE("test parallel key/mapped/value modification") {
@@ -902,6 +932,7 @@ TEST_CASE("test parallel key/mapped/value modification") {
     REQUIRE_MESSAGE(values.size() == 1, "Only one value should be found");
     REQUIRE_MESSAGE(values.begin()->first == *keys.begin(), "Incorrect key in value after parallel modification");
     REQUIRE_MESSAGE(values.begin()->second == *mapped.begin(), "Incorrect mapped in value after parallel modification");
+    tomkv::remove_tom(tom_name);
 }
 
 TEST_CASE("test memory leaks") {
@@ -935,4 +966,5 @@ TEST_CASE("test memory leaks") {
                     "Memory leak: number of elements allocated should be equal to the number of elements deallocated");
     REQUIRE_MESSAGE(alloc.elements_constructed == alloc.elements_destroyed,
                     "Memory leak: number of elements constructed should be equal to the number of elements destroyed");
+    tomkv::remove_tom(tom_name);
 }

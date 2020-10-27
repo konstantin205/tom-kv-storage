@@ -35,8 +35,13 @@ endif()
 find_package(Boost REQUIRED)
 find_package(Threads REQUIRED)
 
+set(INCLUDE_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/include)
+include_directories(${INCLUDE_DIRECTORY})
+
+link_libraries(Threads::Threads)
 include_directories(${Boost_INCLUDE_DIRS})
 link_libraries(${Boost_LIBRARIES})
+link_libraries(stdc++fs)
 
 if (TOM_KV_TEST)
     message(STATUS "Adding test subdirectory")
