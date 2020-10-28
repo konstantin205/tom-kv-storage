@@ -992,3 +992,38 @@ TEST_CASE("read mount without additional path") {
     REQUIRE_MESSAGE(values.begin()->second == 300, "Incorrect mapped(value)");
     tomkv::remove_tom(tom_name);
 }
+
+TEST_CASE("test storage modification with huge over-subscription") {
+    auto tom_name = prepare_tom("1");
+    using storage_type = tomkv::storage<int, int>;
+
+    storage_type st;
+
+    st.mount("mnt", tom_name, "a/c");
+
+    std::size_t thread_count = std::thread::hardware_concurrency() * 10;
+
+    std::vector<std::thread> thread_pool;
+
+    st.set_mapped("mnt/d", 0);
+
+    for (std::size_t i = 0; i < thread_count; ++i) {
+        thread_pool.emplace_back([&st] {
+            std::size_t count = st.modify_mapped("mnt/d", []( auto& m ) { return m + 1; });
+            REQUIRE_MESSAGE(count == 1, "Only one element should be modified");
+        });
+    }
+
+    for (auto& thr : thread_pool) {
+        thr.join();
+    }
+
+    auto keys = st.key("mnt/d");
+    REQUIRE_MESSAGE(keys.size() == 1, "Only one key should exists");
+    REQUIRE_MESSAGE(*keys.begin() == 4, "Key should not be modified");
+
+    auto mapped = st.mapped("mnt/d");
+    REQUIRE_MESSAGE(mapped.size() == 1, "Only one mapped should exists");
+    REQUIRE_MESSAGE(*mapped.begin() == thread_count, "Incorrect mapped after modification");
+    tomkv::remove_tom(tom_name);
+}
