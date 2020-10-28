@@ -20,36 +20,8 @@
 # * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # * SOFTWARE.
 
-cmake_minimum_required(VERSION 3.1)
+find_package(Boost COMPONENTS program_options REQUIRED)
+link_libraries(${Boost_LIBRARIES})
 
-set(CMAKE_CXX_EXTENSIONS OFF)
-option(TOMKV_TEST "Tests for tomkv" OFF)
-option(TOMKV_BENCH "Performance benchmarks for tomkv" OFF)
-
-set(CMAKE_CXX_COMPILER g++)
-set(CMAKE_CXX_STANDARD 17)
-
-if(NOT CMAKE_BUILD_TYPE)
-    message(STATUS "CMAKE_BUILD_TYPE is not specified: using Release as a default")
-    set(CMAKE_BUILD_TYPE Release)
-endif()
-
-find_package(Boost REQUIRED)
-find_package(Threads REQUIRED)
-
-set(INCLUDE_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/include)
-include_directories(${INCLUDE_DIRECTORY})
-include_directories(${Boost_INCLUDE_DIRS})
-
-link_libraries(Threads::Threads)
-link_libraries(stdc++fs)
-
-if (TOMKV_TEST)
-    message(STATUS "Adding test subdirectory")
-    add_subdirectory(test)
-endif()
-
-if (TOMKV_BENCH)
-    message(STATUS "Adding bench subdirectory")
-    add_subdirectory(bench)
-endif()
+add_executable(bench_unordered_map bench_unordered_map.cpp)
+add_executable(bench_storage bench_storage.cpp)
