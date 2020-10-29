@@ -62,7 +62,7 @@ multiple threads to concurrently insert, find and erase elements inside of it.
 
 [Benchmark for tomkv::storage](./doc/storage_bench.md)
 
-[Benchmark for tomkv::unordered_map](./doc/unordered_map.md)
+[Benchmark for tomkv::unordered_map](./doc/unordered_map_bench.md)
 
 ## Functional tests
 
