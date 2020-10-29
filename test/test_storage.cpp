@@ -868,7 +868,7 @@ TEST_CASE("test parallel key/mapped/value modification") {
     st.set_key(path, 0);
 
     for (std::size_t i = 0; i < std::thread::hardware_concurrency(); ++i) {
-        thread_pool1.emplace_back([i, &st, &path] {
+        thread_pool1.emplace_back([&st, &path] {
             st.modify_key(path, [](int k) { return k + 1; });
         });
     }
@@ -888,7 +888,7 @@ TEST_CASE("test parallel key/mapped/value modification") {
     st.set_mapped(path, 0);
 
     for (std::size_t i = 0; i < std::thread::hardware_concurrency(); ++i) {
-        thread_pool2.emplace_back([i, &st, &path] {
+        thread_pool2.emplace_back([&st, &path] {
             st.modify_mapped(path, []( int m ) { return m + 1; });
         });
     }
@@ -911,7 +911,7 @@ TEST_CASE("test parallel key/mapped/value modification") {
     st.set_mapped(path, 0);
 
     for (std::size_t i = 0; i < std::thread::hardware_concurrency(); ++i) {
-        thread_pool3.emplace_back([i, &st, &path] {
+        thread_pool3.emplace_back([&st, &path] {
             st.modify_value(path, []( const std::pair<int, int>& val ) { return std::pair{val.first + 1, val.second + 1}; });
         });
     }

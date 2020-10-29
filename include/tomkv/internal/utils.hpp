@@ -29,15 +29,54 @@
 #include <cassert>
 #include <chrono>
 #include <thread>
+#include <climits>
+
+#if defined(_MSC_VER)
+#include <intrin.h>
+#endif
 
 namespace tomkv {
 namespace utils {
 
 #define __TOMKV_ASSERT(condition) assert(condition)
 
-// TODO: replace with intrinsic-based implementation
+#if defined(__GNUC__) || defined(__clang__)
+inline std::uintptr_t clz( unsigned int input ) { return __builtin_clz(input); }
+inline std::uintptr_t clz( unsigned long int input ) { return __builtin_clzl(input); }
+inline std::uintptr_t clz( unsigned long long int input ) { return __builtin_clzll(input); }
+#endif
+
+#if defined(_MSC_VER)
+#if _M_X64
+#pragma intrinsic(_BitScanReverse64)
+#else
+#pragma intrinsic(_BitScanReverse)
+#endif
+
+inline std::uintptr_t bsr( std::uintptr_t input ) {
+    unsigned long result;
+#if _M_X64
+    _BitScanReverse64(&result, input);
+#else
+    _BitScanReverse(&result, input);
+#endif
+    return result;
+}
+#endif
+
 std::size_t log2(std::size_t input) {
-    return std::size_t(std::log2(input));
+#if defined(__GNUC__) || defined(__clang__)
+    // If N is a power of 2 and input<N => (N-1)-x == (N-1)^input
+    std::uintptr_t n_bits = sizeof(input) * CHAR_BIT;
+    std::size_t result =  std::size_t((n_bits - 1) ^ clz(input));
+#elif defined(_MSC_VER)
+    std::size_t result = bsr(input);
+#else
+    // Default implementation
+     std::size_t result = 0;
+    while (input >>= 1) ++result;
+#endif
+    return result;
 }
 
 // Helper, which executes a body if stack-unwinding is in progress

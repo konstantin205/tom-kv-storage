@@ -26,8 +26,9 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 option(TOMKV_TEST "Tests for tomkv" OFF)
 option(TOMKV_BENCH "Performance benchmarks for tomkv" OFF)
 
-set(CMAKE_CXX_COMPILER g++)
-set(CMAKE_CXX_STANDARD 17)
+if(NOT CMAKE_CXX_STANDARD)
+    set(CMAKE_CXX_STANDARD 17)
+endif()
 
 if(NOT CMAKE_BUILD_TYPE)
     message(STATUS "CMAKE_BUILD_TYPE is not specified: using Release as a default")

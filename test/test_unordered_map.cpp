@@ -190,7 +190,7 @@ TEST_CASE("test parallel operations") {
     // Test parallel insertion with no accessor
     // Each thread inserts 10000 items into hash table
     for (std::size_t i = 0; i < std::thread::hardware_concurrency(); ++i) {
-        thread_pool.emplace_back([i, &values, &umap] {
+        thread_pool.emplace_back([&values, &umap] {
             for (auto& item : values) {
                 umap.emplace(item, item);
             }
