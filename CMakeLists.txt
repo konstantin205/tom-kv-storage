@@ -34,7 +34,7 @@ if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release)
 endif()
 
-find_package(Boost REQUIRED)
+find_package(Boost COMPONENTS filesystem REQUIRED)
 find_package(Threads REQUIRED)
 
 set(INCLUDE_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/include)
@@ -42,7 +42,7 @@ include_directories(${INCLUDE_DIRECTORY})
 include_directories(${Boost_INCLUDE_DIRS})
 
 link_libraries(Threads::Threads)
-link_libraries(stdc++fs)
+link_libraries(${Boost_LIBRARIES})
 
 if (TOMKV_TEST)
     message(STATUS "Adding test subdirectory")

@@ -21,7 +21,7 @@
 # * SOFTWARE.
 
 if (MSVC)
-    add_compile_options(/Wx /W4)
+    add_compile_options(/Wall /W4)
 else()
     add_compile_options(-Wall -Wextra -pedantic -Werror)
 endif()

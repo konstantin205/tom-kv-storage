@@ -27,16 +27,17 @@
 
 #include "boost/property_tree/ptree.hpp"
 #include "boost/property_tree/xml_parser.hpp"
+#include "boost/filesystem.hpp"
 #include <string>
-#include <filesystem>
 
 namespace tomkv {
 namespace internal {
 
 namespace pt = boost::property_tree;
+namespace fs = boost::filesystem;
 
 bool create_empty_tom( const std::string& tom_name ) {
-    if (!std::filesystem::exists(tom_name)) {
+    if (!fs::exists(tom_name)) {
         pt::ptree tree;
 
         tree.add("tom.root", "");
@@ -48,8 +49,8 @@ bool create_empty_tom( const std::string& tom_name ) {
 }
 
 bool remove_tom( const std::string& tom_name ) {
-    if (std::filesystem::exists(tom_name)) {
-        std::filesystem::remove(tom_name);
+    if (fs::exists(tom_name)) {
+        fs::remove(tom_name);
         return true;
     }
     return false;

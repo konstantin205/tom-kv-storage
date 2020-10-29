@@ -37,7 +37,7 @@ namespace utils {
 
 // TODO: replace with intrinsic-based implementation
 std::size_t log2(std::size_t input) {
-    return std::log2(input);
+    return std::size_t(std::log2(input));
 }
 
 // Helper, which executes a body if stack-unwinding is in progress

@@ -27,13 +27,14 @@
 #include <tomkv/tom_management.hpp>
 #include "boost/property_tree/ptree.hpp"
 #include "boost/property_tree/xml_parser.hpp"
-#include <filesystem>
+#include "boost/filesystem.hpp"
 
 namespace pt = boost::property_tree;
+namespace fs = boost::filesystem;
 
 TEST_CASE("test create tom") {
     std::string tom_name = "tom.xml";
-    REQUIRE_MESSAGE(!std::filesystem::exists(tom_name), "Incorrect test setup");
+    REQUIRE_MESSAGE(!fs::exists(tom_name), "Incorrect test setup");
 
     bool created = tomkv::create_empty_tom(tom_name);
     REQUIRE_MESSAGE(created, "Empty tom should be created");
@@ -46,12 +47,12 @@ TEST_CASE("test create tom") {
 
     auto child = tree.get_child("tom.root");
     REQUIRE_MESSAGE(child.empty(), "Tom should be empty");
-    std::filesystem::remove(tom_name);
+    fs::remove(tom_name);
 }
 
 TEST_CASE("test remove tom") {
     std::string tom_name = "tom.xml";
-    REQUIRE_MESSAGE(!std::filesystem::exists(tom_name), "Incorrect test setup");
+    REQUIRE_MESSAGE(!fs::exists(tom_name), "Incorrect test setup");
 
     bool removed = tomkv::remove_tom(tom_name);
     REQUIRE_MESSAGE(!removed, "tom is not exists - it should not be removed");
@@ -64,5 +65,5 @@ TEST_CASE("test remove tom") {
 
     removed = tomkv::remove_tom(tom_name);
     REQUIRE_MESSAGE(removed, "Existing tom should be removed");
-    REQUIRE_MESSAGE(!std::filesystem::exists(tom_name), "Tom was not actually removed");
+    REQUIRE_MESSAGE(!fs::exists(tom_name), "Tom was not actually removed");
 }
