@@ -44,7 +44,7 @@ multiple threads to concurrently insert, find and erase elements inside of it.
 
 - GCC libstdc++ 6 and higher
 - Clang libc++ 3.7 and higher
-- MSVC 19.0 and higher
+- MSVC 19.0 (Visual Studio 2015 U2) and higher
 
 ## Documentation
 
