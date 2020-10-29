@@ -40,7 +40,7 @@ multiple threads to concurrently insert, find and erase elements inside of it.
 
 ## System requirements
 
-`tomkv` library will work correctly with the following compilers in C++17 mode only:
+`tomkv` library will work correctly with the following compilers (C++17 is required):
 
 - GCC libstdc++ 6 and higher
 - Clang libc++ 3.7 and higher
@@ -54,4 +54,18 @@ multiple threads to concurrently insert, find and erase elements inside of it.
 
 [Auxiliary functions](./doc/auxiliary.md)
 
+## Performance benchmarks
 
+`tomkv` library provides a small set of synthetic performance benchmarks (located in `bench` subdirectory) for its main components:
+
+*Note*: to be able to build performance benchmarks using CMake, please set `TOMKV_BENCH` CMake option to `ON`.
+
+[Benchmark for tomkv::storage](./doc/storage_bench.md)
+
+[Benchmark for tomkv::unordered_map](./doc/unordered_map.md)
+
+## Functional tests
+
+Functional tests for all `tomkv` library components are located in `test` subdirectory.
+
+*Note*: to be able to build functional tests using CMake, please set `TOMKV_TEST` CMake option to `ON`.

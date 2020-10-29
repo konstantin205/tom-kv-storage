@@ -22,7 +22,7 @@
  * SOFTWARE.
  */
 
-#include "utils.hpp"
+#include "common/utils.hpp"
 #include <tomkv/storage.hpp>
 #include <tomkv/tom_management.hpp>
 #include "boost/program_options/options_description.hpp"
